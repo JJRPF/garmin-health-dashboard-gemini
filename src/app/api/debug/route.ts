@@ -4,7 +4,7 @@ import { format } from 'date-fns';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-export async function GET() {
+export async function GET(req: Request) {
   const hasUser = !!process.env.GARMIN_USERNAME;
   const hasPass = !!process.env.GARMIN_PASSWORD;
 
@@ -39,7 +39,9 @@ export async function GET() {
       await client.login();
     }
 
-    const date = format(new Date(), 'yyyy-MM-dd');
+    // Accept ?date= from client so we use local date, not UTC server date
+    const url = new URL(req.url);
+    const date = url.searchParams.get('date') ?? format(new Date(), 'yyyy-MM-dd');
     const today = new Date(date);
     const GC_API = 'https://connectapi.garmin.com';
     const gc = client as Record<string, (...args: unknown[]) => Promise<unknown>>;
