@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { format } from 'date-fns';
 import Link from 'next/link';
 import { ArrowLeft, Flame } from 'lucide-react';
 import type { DailyMetrics } from '@/lib/types';
@@ -12,7 +13,8 @@ export default function StrainPage() {
   const [data, setData] = useState<DailyMetrics | null>(null);
 
   useEffect(() => {
-    fetch('/api/health').then(r => r.json()).then(setData);
+    const localDate = format(new Date(), 'yyyy-MM-dd');
+    fetch(`/api/health?date=${localDate}`).then(r => r.json()).then(setData);
   }, []);
 
   const todayStrain = data?.activities.reduce((s, a) => s + a.strain, 0) ?? 0;

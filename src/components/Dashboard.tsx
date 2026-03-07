@@ -45,7 +45,9 @@ export default function Dashboard() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/health');
+      // Pass local date so the server doesn't use UTC (which can be a day ahead)
+      const localDate = format(new Date(), 'yyyy-MM-dd');
+      const res = await fetch(`/api/health?date=${localDate}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json: DailyMetrics = await res.json();
       setData(json);
