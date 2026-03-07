@@ -21,7 +21,8 @@ interface Props {
 export default function HRVCard({ hrv, benchmark }: Props) {
   const statusInfo = STATUS_LABELS[hrv.status] ?? STATUS_LABELS.balanced;
   const trend7 = hrv.trend.length > 0 ? hrv.trend : [0];
-  const min7 = Math.min(...trend7.filter(v => v > 0));
+  const positives = trend7.filter(v => v > 0);
+  const min7 = positives.length > 0 ? Math.min(...positives) : 0;
   const max7 = Math.max(...trend7);
   const avg7 = hrv.weeklyAverage;
 

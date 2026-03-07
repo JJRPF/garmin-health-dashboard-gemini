@@ -1,10 +1,11 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import InstallPrompt from '@/components/InstallPrompt';
 
 export const metadata: Metadata = {
   title: 'Garmin Health',
   description: 'Tu dashboard de salud personal conectado a Garmin',
-  manifest: '/manifest.json',
+  // manifest auto-registered by src/app/manifest.ts → /manifest.webmanifest
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
@@ -25,6 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="es" className="dark">
       <body className="bg-bg min-h-screen">
         {children}
+        <InstallPrompt />
       </body>
     </html>
   );
