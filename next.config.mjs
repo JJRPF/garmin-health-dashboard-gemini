@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {
-    serverComponentsExternalPackages: ['garmin-connect'],
+    serverComponentsExternalPackages: ['garmin-connect', 'web-push'],
   },
 };
 

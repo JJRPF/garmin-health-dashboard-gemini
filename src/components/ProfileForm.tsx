@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { User, CheckCircle } from 'lucide-react';
-import type { UserProfile, Sex, FitnessLevel, Goal } from '@/lib/types';
+import type { UserProfile, Sex, FitnessLevel, Goal, WeightGoal } from '@/lib/types';
+import { calculateBMI } from '@/lib/benchmarks';
 import { clsx } from 'clsx';
 
 interface Props {
@@ -33,16 +34,42 @@ function OptionButton<T extends string>({
   );
 }
 
+function bmiColor(bmi: number): string {
+  if (bmi < 18.5) return '#38bdf8';
+  if (bmi < 25)   return '#4ade80';
+  if (bmi < 30)   return '#facc15';
+  if (bmi < 35)   return '#fb923c';
+  return '#f87171';
+}
+
+function bmiLabel(bmi: number): string {
+  if (bmi < 18.5) return 'Bajo peso';
+  if (bmi < 25)   return 'Saludable';
+  if (bmi < 30)   return 'Sobrepeso';
+  if (bmi < 35)   return 'Obesidad I';
+  return 'Obesidad II+';
+}
+
 // ─── Main component ──────────────────────────────────────────────────────────
 export default function ProfileForm({ initial, onSave, onCancel, ctaLabel = 'Guardar perfil' }: Props) {
-  const [name, setName] = useState(initial?.name ?? '');
-  const [age, setAge] = useState(initial?.age?.toString() ?? '');
-  const [sex, setSex] = useState<Sex>(initial?.sex ?? 'male');
+  const [name, setName]               = useState(initial?.name ?? '');
+  const [age, setAge]                 = useState(initial?.age?.toString() ?? '');
+  const [sex, setSex]                 = useState<Sex>(initial?.sex ?? 'male');
+  const [height, setHeight]           = useState(initial?.height?.toString() ?? '');
+  const [weight, setWeight]           = useState(initial?.weight?.toString() ?? '');
+  const [weightGoal, setWeightGoal]   = useState<WeightGoal | ''>(initial?.weightGoal ?? '');
   const [fitnessLevel, setFitnessLevel] = useState<FitnessLevel>(initial?.fitnessLevel ?? 'intermediate');
-  const [goal, setGoal] = useState<Goal>(initial?.goal ?? 'general_health');
+  const [goal, setGoal]               = useState<Goal>(initial?.goal ?? 'general_health');
 
-  const ageNum = parseInt(age, 10);
-  const isValid = age !== '' && ageNum >= 10 && ageNum <= 100;
+  const ageNum    = parseInt(age, 10);
+  const heightNum = parseInt(height, 10);
+  const weightNum = parseFloat(weight);
+  const isValid   = age !== '' && ageNum >= 10 && ageNum <= 100;
+
+  // Live BMI preview
+  const bmi = (heightNum >= 100 && weightNum > 0)
+    ? calculateBMI(weightNum, heightNum)
+    : 0;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,6 +78,9 @@ export default function ProfileForm({ initial, onSave, onCancel, ctaLabel = 'Gua
       name: name.trim() || undefined,
       age: ageNum,
       sex,
+      height: heightNum > 0 ? heightNum : undefined,
+      weight: weightNum > 0 ? weightNum : undefined,
+      weightGoal: (weightGoal || undefined) as WeightGoal | undefined,
       fitnessLevel,
       goal,
       setupCompleted: true,
@@ -103,20 +133,90 @@ export default function ProfileForm({ initial, onSave, onCancel, ctaLabel = 'Gua
         </div>
       </div>
 
+      {/* Height + Weight side by side */}
+      <div className="flex gap-3">
+        <div className="flex-1 flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-secondary uppercase tracking-widest">
+            Talla <span className="text-muted font-normal normal-case">(cm)</span>
+          </label>
+          <input
+            type="number"
+            value={height}
+            onChange={e => setHeight(e.target.value)}
+            placeholder="ej. 175"
+            min={100}
+            max={250}
+            className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-sm text-primary placeholder:text-muted focus:outline-none focus:border-primary/50 transition-colors"
+          />
+        </div>
+        <div className="flex-1 flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-secondary uppercase tracking-widest">
+            Peso <span className="text-muted font-normal normal-case">(kg)</span>
+          </label>
+          <input
+            type="number"
+            value={weight}
+            onChange={e => setWeight(e.target.value)}
+            placeholder="ej. 75"
+            min={30}
+            max={300}
+            step={0.1}
+            className="w-full bg-surface border border-border rounded-xl px-4 py-3 text-sm text-primary placeholder:text-muted focus:outline-none focus:border-primary/50 transition-colors"
+          />
+        </div>
+      </div>
+
+      {/* Live BMI preview */}
+      {bmi > 0 && (
+        <div
+          className="rounded-xl px-4 py-3 flex items-center justify-between border"
+          style={{ borderColor: `${bmiColor(bmi)}40`, backgroundColor: `${bmiColor(bmi)}0d` }}
+        >
+          <div>
+            <p className="text-xs text-secondary">IMC calculado</p>
+            <p className="text-xs text-muted mt-0.5">
+              Rango saludable: {Math.round(18.5 * (heightNum/100) ** 2 * 10) / 10}–{Math.round(24.9 * (heightNum/100) ** 2 * 10) / 10} kg
+            </p>
+          </div>
+          <div className="text-right">
+            <p className="text-xl font-black leading-none" style={{ color: bmiColor(bmi) }}>
+              {bmi}
+            </p>
+            <p className="text-xs font-semibold mt-0.5" style={{ color: bmiColor(bmi) }}>
+              {bmiLabel(bmi)}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Weight goal — only shown when weight is entered */}
+      {weightNum > 0 && (
+        <div className="flex flex-col gap-1.5">
+          <label className="text-xs font-semibold text-secondary uppercase tracking-widest">
+            Objetivo de peso <span className="text-muted font-normal normal-case">(opcional)</span>
+          </label>
+          <div className="flex gap-2">
+            <OptionButton value="lose"     current={weightGoal as WeightGoal} label="Perder"   onClick={setWeightGoal} />
+            <OptionButton value="maintain" current={weightGoal as WeightGoal} label="Mantener" onClick={setWeightGoal} />
+            <OptionButton value="gain"     current={weightGoal as WeightGoal} label="Ganar"    onClick={setWeightGoal} />
+          </div>
+        </div>
+      )}
+
       {/* Fitness level */}
       <div className="flex flex-col gap-1.5">
         <label className="text-xs font-semibold text-secondary uppercase tracking-widest">Nivel de forma física</label>
         <div className="grid grid-cols-2 gap-2">
-          <OptionButton value="beginner" current={fitnessLevel} label="Principiante" onClick={setFitnessLevel} />
-          <OptionButton value="intermediate" current={fitnessLevel} label="Intermedio" onClick={setFitnessLevel} />
-          <OptionButton value="advanced" current={fitnessLevel} label="Avanzado" onClick={setFitnessLevel} />
-          <OptionButton value="athlete" current={fitnessLevel} label="Atleta" onClick={setFitnessLevel} />
+          <OptionButton value="beginner"     current={fitnessLevel} label="Principiante" onClick={setFitnessLevel} />
+          <OptionButton value="intermediate" current={fitnessLevel} label="Intermedio"   onClick={setFitnessLevel} />
+          <OptionButton value="advanced"     current={fitnessLevel} label="Avanzado"     onClick={setFitnessLevel} />
+          <OptionButton value="athlete"      current={fitnessLevel} label="Atleta"       onClick={setFitnessLevel} />
         </div>
         <p className="text-[10px] text-muted">
-          {fitnessLevel === 'beginner' && 'Menos de 6 meses de actividad regular.'}
+          {fitnessLevel === 'beginner'     && 'Menos de 6 meses de actividad regular.'}
           {fitnessLevel === 'intermediate' && '6 meses a 2 años de actividad regular.'}
-          {fitnessLevel === 'advanced' && 'Más de 2 años, entrenamiento estructurado.'}
-          {fitnessLevel === 'athlete' && 'Entrenamiento diario de alta intensidad, competición.'}
+          {fitnessLevel === 'advanced'     && 'Más de 2 años, entrenamiento estructurado.'}
+          {fitnessLevel === 'athlete'      && 'Entrenamiento diario de alta intensidad, competición.'}
         </p>
       </div>
 
@@ -124,10 +224,10 @@ export default function ProfileForm({ initial, onSave, onCancel, ctaLabel = 'Gua
       <div className="flex flex-col gap-1.5">
         <label className="text-xs font-semibold text-secondary uppercase tracking-widest">Objetivo principal</label>
         <div className="grid grid-cols-2 gap-2">
-          <OptionButton value="recovery" current={goal} label="Recuperación" onClick={setGoal} />
-          <OptionButton value="performance" current={goal} label="Rendimiento" onClick={setGoal} />
-          <OptionButton value="weight_loss" current={goal} label="Pérdida de peso" onClick={setGoal} />
-          <OptionButton value="general_health" current={goal} label="Salud general" onClick={setGoal} />
+          <OptionButton value="recovery"       current={goal} label="Recuperación"    onClick={setGoal} />
+          <OptionButton value="performance"    current={goal} label="Rendimiento"     onClick={setGoal} />
+          <OptionButton value="weight_loss"    current={goal} label="Pérdida de peso" onClick={setGoal} />
+          <OptionButton value="general_health" current={goal} label="Salud general"   onClick={setGoal} />
         </div>
       </div>
 

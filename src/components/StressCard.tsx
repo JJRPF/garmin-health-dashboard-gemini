@@ -1,6 +1,7 @@
 'use client';
 
-import { Brain } from 'lucide-react';
+import Link from 'next/link';
+import { Brain, ChevronRight } from 'lucide-react';
 import type { StressData } from '@/lib/types';
 import { ResponsiveContainer, AreaChart, Area, Tooltip, ReferenceLine, XAxis } from 'recharts';
 
@@ -101,6 +102,15 @@ export default function StressCard({ stress }: Props) {
           color={color}
         />
       </div>
+
+      <Link
+        href="/stress"
+        className="flex items-center gap-1 text-xs text-muted hover:text-primary transition-colors mt-3 pt-3 border-t border-border"
+      >
+        <Brain size={11} />
+        Ver detalle de estrés
+        <ChevronRight size={11} className="ml-auto" />
+      </Link>
     </div>
   );
 }

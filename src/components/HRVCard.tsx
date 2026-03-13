@@ -1,6 +1,7 @@
 'use client';
 
-import { Activity } from 'lucide-react';
+import Link from 'next/link';
+import { Activity, ChevronRight } from 'lucide-react';
 import type { HRVData } from '@/lib/types';
 import type { MetricBenchmark } from '@/lib/benchmarks';
 import TrendSparkline from './ui/TrendSparkline';
@@ -76,6 +77,16 @@ export default function HRVCard({ hrv, benchmark }: Props) {
 
       {/* Demographic benchmark — only shown when profile is set */}
       {benchmark && <BenchmarkBadge benchmark={benchmark} />}
+
+      {/* Detail link */}
+      <Link
+        href="/hrv"
+        className="flex items-center gap-1 text-xs text-muted hover:text-primary transition-colors mt-3 pt-3 border-t border-border"
+      >
+        <Activity size={11} />
+        Ver detalle de VFC
+        <ChevronRight size={11} className="ml-auto" />
+      </Link>
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { es } from 'date-fns/locale';
 import { RefreshCw, WifiOff, Gauge, User } from 'lucide-react';
 import Link from 'next/link';
 import type { DailyMetrics } from '@/lib/types';
+import { checkAndNotifyBattery } from '@/lib/notifications';
 import { useProfile } from '@/lib/useProfile';
 import { computeBenchmarks } from '@/lib/benchmarks';
 import type { ProfileBenchmarks } from '@/lib/benchmarks';
@@ -19,6 +20,8 @@ import WeeklyTrend from './WeeklyTrend';
 import StatsRow from './StatsRow';
 import BottomNav from './BottomNav';
 import ProfileSetupModal from './ProfileSetupModal';
+import InsightsCard from './InsightsCard';
+import PushNotificationManager from './PushNotificationManager';
 
 function Skeleton({ className }: { className?: string }) {
   return (
@@ -52,6 +55,18 @@ export default function Dashboard() {
       const json: DailyMetrics = await res.json();
       setData(json);
       setLastSync(new Date());
+      // Cache fitness metrics for profile page (VO2max + training zones)
+      if (json.recovery?.restingHR > 0) {
+        localStorage.setItem('garmin_last_rhr', String(json.recovery.restingHR));
+      }
+      const observedMax = json.activities?.reduce((m: number, a: { maxHR: number }) => Math.max(m, a.maxHR ?? 0), 0);
+      if (observedMax > 100) {
+        localStorage.setItem('garmin_observed_max_hr', String(observedMax));
+      }
+      // Check Body Battery alert threshold (no-op if notifications are disabled)
+      if (json.bodyBattery?.isAvailable) {
+        checkAndNotifyBattery(json.bodyBattery.current);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error de conexión');
     } finally {
@@ -66,7 +81,7 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  const todayStrain = data?.activities.reduce((s, a) => s + a.strain, 0) ?? 0;
+  const todayStrain = data?.strain ?? 0;
   const greeting = profile?.name ? `Hola, ${profile.name}` : 'Garmin Health';
 
   // Compute age/sex/fitness benchmarks whenever we have both profile and data
@@ -175,8 +190,11 @@ export default function Dashboard() {
                 <RecoveryScore recovery={data.recovery} benchmarks={benchmarks} />
               </div>
 
+              {/* Insights / auto-recommendations */}
+              <InsightsCard data={data} profile={profile} benchmarks={benchmarks} />
+
               {/* Sleep */}
-              <SleepCard sleep={data.sleep} benchmark={benchmarks?.sleep} />
+              <SleepCard sleep={data.sleep} benchmark={benchmarks?.sleep} isDemo={data.isDemo} />
 
               {/* HRV */}
               <HRVCard hrv={data.hrv} benchmark={benchmarks?.hrv} />
@@ -185,13 +203,16 @@ export default function Dashboard() {
               <BodyBatteryCard bodyBattery={data.bodyBattery} />
 
               {/* Strain + Activities */}
-              <StrainCard activities={data.activities} todayStrain={todayStrain} />
+              <StrainCard activities={data.activities} todayStrain={todayStrain} steps={data.steps} floorsAscended={data.floorsAscended} highlyActiveSeconds={data.highlyActiveSeconds} bodyBatteryDrained={data.bodyBattery.drained} />
 
               {/* Stress timeline */}
               <StressCard stress={data.stress} />
 
               {/* Steps / Calories */}
               <StatsRow steps={data.steps} calories={data.calories} />
+
+              {/* Push notifications settings */}
+              <PushNotificationManager currentBattery={data.bodyBattery.current} />
 
               {/* Weekly trends */}
               <WeeklyTrend trend={data.weeklyTrend} />

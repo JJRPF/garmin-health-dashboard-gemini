@@ -302,3 +302,98 @@ export function formatPercentile(pct: number): string {
   if (pct >= 50) return 'Top 50%';
   return `Percentil ${pct}`;
 }
+
+// ── Weight / BMI ───────────────────────────────────────────────────────────────
+
+export type BMICategory =
+  | 'underweight'
+  | 'normal'
+  | 'overweight'
+  | 'obese_1'
+  | 'obese_2';
+
+export interface WeightBenchmark {
+  bmi: number;
+  category: BMICategory;
+  /** Spanish label: "Peso saludable", "Sobrepeso", etc. */
+  label: string;
+  /** One-line Spanish description */
+  description: string;
+  color: string;
+  /** Lower bound of ideal range (BMI 18.5) in kg for this person's height */
+  idealMin: number;
+  /** Upper bound of ideal range (BMI 24.9) in kg */
+  idealMax: number;
+  /** kg needed to reach the ideal range; 0 if already within it */
+  distanceKg: number;
+  /** direction: which way the user needs to go */
+  direction: 'lose' | 'gain' | 'ok';
+  /** Whether BMI may underestimate health for high muscle-mass individuals */
+  athleteCaveat: boolean;
+}
+
+/** Compute BMI — returns 0 if inputs are missing/invalid. */
+export function calculateBMI(weightKg: number, heightCm: number): number {
+  if (!weightKg || !heightCm || heightCm < 50) return 0;
+  return Math.round((weightKg / Math.pow(heightCm / 100, 2)) * 10) / 10;
+}
+
+/**
+ * Build a WeightBenchmark from the user's profile.
+ * Returns null if height or weight is not set.
+ */
+export function getWeightBenchmark(profile: UserProfile): WeightBenchmark | null {
+  if (!profile.weight || !profile.height) return null;
+
+  const bmi = calculateBMI(profile.weight, profile.height);
+  if (!bmi) return null;
+
+  const h = profile.height / 100;
+  const idealMin = Math.round(18.5 * h * h * 10) / 10;
+  const idealMax = Math.round(24.9 * h * h * 10) / 10;
+
+  let category: BMICategory;
+  let label: string;
+  let color: string;
+  let direction: WeightBenchmark['direction'];
+  let distanceKg: number;
+
+  if (bmi < 18.5) {
+    category = 'underweight'; label = 'Bajo peso'; color = '#38bdf8';
+    direction = 'gain';
+    distanceKg = Math.round((idealMin - profile.weight) * 10) / 10;
+  } else if (bmi < 25) {
+    category = 'normal'; label = 'Peso saludable'; color = '#4ade80';
+    direction = 'ok'; distanceKg = 0;
+  } else if (bmi < 30) {
+    category = 'overweight'; label = 'Sobrepeso'; color = '#facc15';
+    direction = 'lose';
+    distanceKg = Math.round((profile.weight - idealMax) * 10) / 10;
+  } else if (bmi < 35) {
+    category = 'obese_1'; label = 'Obesidad grado I'; color = '#fb923c';
+    direction = 'lose';
+    distanceKg = Math.round((profile.weight - idealMax) * 10) / 10;
+  } else {
+    category = 'obese_2'; label = 'Obesidad grado II+'; color = '#f87171';
+    direction = 'lose';
+    distanceKg = Math.round((profile.weight - idealMax) * 10) / 10;
+  }
+
+  const descriptions: Record<BMICategory, string> = {
+    underweight: `${distanceKg} kg por debajo del mínimo saludable (IMC < 18.5)`,
+    normal:      'Dentro del rango saludable según la OMS (IMC 18.5–24.9)',
+    overweight:  `${distanceKg} kg por encima del rango saludable (IMC 25–29.9)`,
+    obese_1:     `${distanceKg} kg por encima del rango saludable (IMC 30–34.9)`,
+    obese_2:     'IMC ≥ 35 · Se recomienda consulta médica',
+  };
+
+  const athleteCaveat =
+    (profile.fitnessLevel === 'athlete' || profile.fitnessLevel === 'advanced') &&
+    category !== 'underweight';
+
+  return {
+    bmi, category, label,
+    description: descriptions[category],
+    color, idealMin, idealMax, distanceKg, direction, athleteCaveat,
+  };
+}

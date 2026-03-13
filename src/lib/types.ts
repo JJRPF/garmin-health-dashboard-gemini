@@ -57,20 +57,35 @@ export interface WeeklyTrend {
   dates: string[];
   recovery: number[];
   hrv: number[];
-  sleep: number[];
+  sleep: number[];       // sleep score 0–100
+  sleepHours: number[];  // actual sleep duration in hours
   rhr: number[];
   strain: number[];
+}
+
+/** One data point for the trends chart (30/90d historical view). */
+export interface TrendPoint {
+  date: string;       // 'YYYY-MM-DD'
+  hrv: number;        // ms
+  sleepHours: number; // hours
+  rhr: number;        // bpm
+  recovery: number;   // 0–100
+  strain: number;     // 0–21 (Whoop-style)
 }
 
 // ─── User Profile ─────────────────────────────────────────────────────────────
 export type Sex = 'male' | 'female';
 export type FitnessLevel = 'beginner' | 'intermediate' | 'advanced' | 'athlete';
 export type Goal = 'recovery' | 'performance' | 'weight_loss' | 'general_health';
+export type WeightGoal = 'lose' | 'maintain' | 'gain';
 
 export interface UserProfile {
   name?: string;
   age: number;
   sex: Sex;
+  height?: number;       // cm (optional)
+  weight?: number;       // kg (optional)
+  weightGoal?: WeightGoal;
   fitnessLevel: FitnessLevel;
   goal: Goal;
   setupCompleted: boolean;
@@ -87,5 +102,9 @@ export interface DailyMetrics {
   activities: ActivityData[];
   steps: number;
   calories: number;
+  floorsAscended: number;
+  highlyActiveSeconds: number;
+  activeSeconds: number;
+  strain: number;         // total daily strain: TRIMP + NEAT background
   weeklyTrend: WeeklyTrend;
 }

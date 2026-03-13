@@ -71,7 +71,7 @@ export default function BodyBatteryCard({ bodyBattery }: Props) {
         </div>
         <div className="flex items-center gap-1.5">
           <TrendingDown size={13} className="text-recovery-red" />
-          <span className="text-xs text-secondary">Drenado:</span>
+          <span className="text-xs text-secondary">Consumido:</span>
           <span className="text-xs font-bold text-recovery-red">{bodyBattery.drained}</span>
         </div>
       </div>
@@ -107,6 +107,11 @@ export default function BodyBatteryCard({ bodyBattery }: Props) {
           </AreaChart>
         </ResponsiveContainer>
       )}
+
+      {/* Sync note */}
+      <p className="text-[9px] text-muted mt-2 leading-snug">
+        Datos de la última sincronización del reloj. Se actualiza cada ~15 min en la app.
+      </p>
     </div>
   );
 }

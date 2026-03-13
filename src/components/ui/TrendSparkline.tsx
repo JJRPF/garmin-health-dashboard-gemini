@@ -9,6 +9,7 @@ interface TrendSparklineProps {
   height?: number;
   showDots?: boolean;
   referenceValue?: number;
+  referenceLabel?: string;
 }
 
 export default function TrendSparkline({
@@ -17,6 +18,7 @@ export default function TrendSparkline({
   color,
   height = 56,
   referenceValue,
+  referenceLabel,
 }: TrendSparklineProps) {
   const chartData = data.map((v, i) => ({ v, label: labels[i] ?? '' }));
 
@@ -34,7 +36,14 @@ export default function TrendSparkline({
             y={referenceValue}
             stroke={color}
             strokeDasharray="3 3"
-            strokeOpacity={0.4}
+            strokeOpacity={0.5}
+            label={referenceLabel ? {
+              value: referenceLabel,
+              position: 'insideTopRight',
+              fill: color,
+              fontSize: 9,
+              opacity: 0.7,
+            } : undefined}
           />
         )}
         <Tooltip

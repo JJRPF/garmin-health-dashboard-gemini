@@ -94,11 +94,16 @@ export const mockData: DailyMetrics = {
   ],
   steps: 8432,
   calories: 2387,
+  floorsAscended: 8,
+  highlyActiveSeconds: 4200,   // ~70 min vigorous (includes 58-min run + extra)
+  activeSeconds: 2400,          // ~40 min moderate (brisk walking, etc.)
+  strain: 16.4,  // 13.8 TRIMP (run) + 1.9 NEAT (60+40 active min) + 0.7 battery drain (14pt)
   weeklyTrend: {
     dates: Array.from({ length: 7 }, (_, i) => format(subDays(today, 6 - i), 'EEE')),
     recovery: [65, 45, 72, 81, 58, 69, 73],
     hrv: [48, 42, 51, 55, 47, 50, 52],
     sleep: [75, 68, 82, 79, 65, 72, 78],
+    sleepHours: [6.8, 6.2, 7.5, 7.8, 5.9, 7.0, 7.25],
     rhr: [60, 62, 58, 57, 61, 59, 58],
     strain: [8.2, 12.5, 6.1, 15.3, 9.8, 7.2, 13.8],
   },

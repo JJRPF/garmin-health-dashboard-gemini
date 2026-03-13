@@ -1,11 +1,11 @@
 import { format, subDays } from 'date-fns';
 import type {
   DailyMetrics, SleepData, HRVData, BodyBatteryData,
-  StressData, ActivityData, WeeklyTrend,
+  StressData, ActivityData, WeeklyTrend, TrendPoint,
 } from './types';
 import {
   calculateSleepScore, calculateRecoveryScore, getRecoveryCategory,
-  calculateStrainScore, getHRVStatus,
+  calculateStrainScore, calculateDailyStrain, getHRVStatus,
 } from './scoring';
 import { mockData } from './mockData';
 
@@ -85,14 +85,16 @@ function parseSleep(raw: Record<string, unknown>): SleepData {
   };
 }
 
-function parseHRV(raw: Record<string, unknown>, trend: number[]): HRVData {
+function parseHRV(raw: Record<string, unknown>, trend: number[], sleepHRVFallback = 0): HRVData {
   const s = (raw?.hrvSummary ?? raw ?? {}) as Record<string, unknown>;
   const weekly = (s.weeklyAvg ?? s.weeklyAverage ?? 0) as number;
-  const last = (s.lastNight ?? s.lastNightAvg ?? 0) as number;
+  // Some devices only expose HRV via the sleep endpoint — use it when the dedicated endpoint has no data
+  const last = ((s.lastNight ?? s.lastNightAvg ?? 0) as number) || sleepHRVFallback;
+  const weeklyFinal = weekly || (sleepHRVFallback > 0 ? sleepHRVFallback : 0);
   return {
-    weeklyAverage: weekly,
+    weeklyAverage: weeklyFinal,
     lastNight: last,
-    status: getHRVStatus(last, weekly),
+    status: getHRVStatus(last, weeklyFinal),
     trend,
   };
 }
@@ -105,7 +107,9 @@ function parseBodyBattery(raw: unknown[], summary?: Record<string, unknown> | nu
     const low = (summary?.bodyBatteryLowestValue ?? 0) as number;
     if (current > 0 || high > 0) {
       // Summary has BB data — show aggregates (no intraday chart)
-      return { isAvailable: true, current, charged: high, drained: low, data: [] };
+      // "drained" = units consumed from today's peak (charged - current)
+      const consumed = high > current ? high - current : 0;
+      return { isAvailable: true, current, charged: high, drained: consumed, data: [] };
     }
     return { isAvailable: false, current: 0, charged: 0, drained: 0, data: [] };
   }
@@ -118,11 +122,13 @@ function parseBodyBattery(raw: unknown[], summary?: Record<string, unknown> | nu
     };
   });
   const latest = raw[raw.length - 1] as Record<string, unknown>;
+  const currentVal = (latest?.dynamicFeedbackScore ?? latest?.bodyBatteryScore ?? 50) as number;
+  const chargedVal = Math.max(...readings.map(r => r.value));
   return {
     isAvailable: true,
-    current: (latest?.dynamicFeedbackScore ?? latest?.bodyBatteryScore ?? 50) as number,
-    charged: Math.max(...readings.map(r => r.value)),
-    drained: Math.min(...readings.map(r => r.value)),
+    current: currentVal,
+    charged: chargedVal,
+    drained: Math.max(0, chargedVal - currentVal),
     data: readings,
   };
 }
@@ -229,8 +235,15 @@ export async function fetchDailyMetrics(dateStr?: string): Promise<DailyMetrics>
     const hrvTrend = buildHrvTrend(weeklyAvgEarly, lastNightEarly);
 
     const sleep = parseSleep(sleepRes.status === 'fulfilled' ? sleepRes.value as Record<string, unknown> : {});
-    const sleepScore = calculateSleepScore(sleep);
+    // Prefer Garmin's native sleep score (parseSleep extracts sleepScores.overall.value).
+    // Fall back to our custom duration+quality algo only when Garmin returns 0.
+    const sleepScore = sleep.sleepScore > 0 ? sleep.sleepScore : calculateSleepScore(sleep);
     sleep.sleepScore = sleepScore;
+
+    // If the dedicated HRV endpoint returned nothing, rebuild the trend from sleep's averageHRV
+    const effectiveHrvTrend = weeklyAvgEarly > 0
+      ? hrvTrend
+      : buildHrvTrend(sleep.averageHRV, sleep.averageHRV);
 
     const hrv = parseHRV(
       hrvRes.status === 'fulfilled' &&
@@ -238,7 +251,8 @@ export async function fetchDailyMetrics(dateStr?: string): Promise<DailyMetrics>
       hrvRes.value !== null
         ? hrvRes.value as Record<string, unknown>
         : {},
-      hrvTrend,
+      effectiveHrvTrend,
+      sleep.averageHRV,
     );
 
     // Daily summary — parse first so it can be used as fallback for BB and HR
@@ -265,7 +279,26 @@ export async function fetchDailyMetrics(dateStr?: string): Promise<DailyMetrics>
 
     const activities = parseActivities(
       actsRes.status === 'fulfilled' ? actsRes.value as unknown[] ?? [] : [],
-    ).map(a => ({ ...a, strain: calculateStrainScore([a]) }));
+    ).map(a => ({ ...a, strain: calculateStrainScore([a], restingHR || 60) }));
+
+    const steps = stepsRes.status === 'fulfilled' ? (stepsRes.value as number) ?? 0 : 0;
+    // Total daily calories from summary (includes BMR + NEAT + exercise)
+    const totalCals = (
+      (summaryData?.totalKilocalories ?? summaryData?.activeKilocalories ?? 0) as number
+    ) || activities.reduce((s, a) => s + a.calories, 0);
+
+    // Enriched background activity data from usersummary
+    const floorsAscended     = (summaryData?.floorsAscended     ?? 0) as number;
+    const highlyActiveSeconds = (summaryData?.highlyActiveSeconds ?? 0) as number;
+    const activeSeconds       = (summaryData?.activeSeconds       ?? 0) as number;
+
+    const dailyStrain = calculateDailyStrain(activities, steps, totalCals, {
+      highlyActiveSeconds,
+      activeSeconds,
+      floorsAscended,
+      stressAverage:       stress.average,
+      bodyBatteryDrained:  bodyBattery.drained,  // HRV-derived physiological load
+    });
 
     const baselineHRV = hrvTrend.filter(v => v > 0).reduce((s, v, _i, arr) => s + v / arr.length, 0) || hrv.weeklyAverage || 50;
     const recoveryScore = calculateRecoveryScore({
@@ -280,13 +313,15 @@ export async function fetchDailyMetrics(dateStr?: string): Promise<DailyMetrics>
     const buildWeekly = (mock: number[], todayVal: number) =>
       [...mock.slice(0, 6), todayVal];
 
+    const todaySleepHours = sleep.totalSleepSeconds / 3600;
     const weeklyTrend: WeeklyTrend = {
       dates: Array.from({ length: 7 }, (_, i) => format(subDays(today, 6 - i), 'EEE')),
       recovery: buildWeekly(mockData.weeklyTrend.recovery, recoveryScore),
-      hrv: hrvTrend,
+      hrv: effectiveHrvTrend,
       sleep: buildWeekly(mockData.weeklyTrend.sleep, sleepScore),
+      sleepHours: buildWeekly(mockData.weeklyTrend.sleepHours, todaySleepHours),
       rhr: [...mockData.weeklyTrend.rhr.slice(0, 6), restingHR || 60],
-      strain: buildWeekly(mockData.weeklyTrend.strain, activities.reduce((s, a) => s + a.strain, 0)),
+      strain: buildWeekly(mockData.weeklyTrend.strain, dailyStrain),
     };
 
     const metrics: DailyMetrics = {
@@ -304,8 +339,12 @@ export async function fetchDailyMetrics(dateStr?: string): Promise<DailyMetrics>
       bodyBattery,
       stress,
       activities,
-      steps: stepsRes.status === 'fulfilled' ? (stepsRes.value as number) ?? 0 : 0,
-      calories: activities.reduce((s, a) => s + a.calories, 0),
+      steps,
+      calories: totalCals,
+      floorsAscended,
+      highlyActiveSeconds,
+      activeSeconds,
+      strain: dailyStrain,
       weeklyTrend,
     };
 
@@ -317,4 +356,171 @@ export async function fetchDailyMetrics(dateStr?: string): Promise<DailyMetrics>
     // Return partial mock but mark it so we can debug
     return { ...mockData, date, isDemo: true };
   }
+}
+
+// ─── Historical trend fetching (for 30/90d charts) ────────────────────────────
+
+interface DayTrendEntry { hrv: number; sleepHours: number; rhr: number; ts: number }
+const dayTrendCache = new Map<string, DayTrendEntry>();
+const DAY_TREND_TTL = 4 * 60 * 60 * 1000; // 4h — historical data is immutable
+
+interface TrendsCacheEntry { data: TrendPoint[]; ts: number }
+const trendsCache = new Map<string, TrendsCacheEntry>();
+const TRENDS_CACHE_TTL = 60 * 60 * 1000; // 1h
+
+type GCClient = Record<string, (...args: unknown[]) => Promise<unknown>>;
+
+async function fetchDayTrend(gc: GCClient, GC_API: string, date: string): Promise<{ hrv: number; sleepHours: number; rhr: number }> {
+  // Check lightweight cache first
+  const cached = dayTrendCache.get(date);
+  if (cached && Date.now() - cached.ts < DAY_TREND_TTL) {
+    return { hrv: cached.hrv, sleepHours: cached.sleepHours, rhr: cached.rhr };
+  }
+  // Re-use full DailyMetrics cache if available
+  const fullCached = cache.get(date);
+  if (fullCached && Date.now() - fullCached.ts < CACHE_TTL) {
+    const d = fullCached.data;
+    return { hrv: d.hrv.lastNight, sleepHours: d.sleep.totalSleepSeconds / 3600, rhr: d.recovery.restingHR };
+  }
+
+  const today = new Date(date);
+  const [sleepRes, hrvRes, hrRes] = await Promise.allSettled([
+    gc.getSleepData(today),
+    gc.get(`${GC_API}/hrv-service/hrv/${date}`),
+    gc.getHeartRate(today),
+  ]);
+
+  const sleepRaw = (sleepRes.status === 'fulfilled' ? sleepRes.value : {}) as Record<string, unknown>;
+  const sleepDTO = (sleepRaw?.dailySleepDTO ?? sleepRaw ?? {}) as Record<string, unknown>;
+  const sleepSeconds = (sleepDTO.sleepTimeSeconds ?? sleepDTO.totalSleepSeconds ?? 0) as number;
+  // HRV from sleep endpoint — fallback for devices without dedicated HRV endpoint
+  const sleepHRV = Number(sleepDTO.averageHrvValue ?? sleepDTO.averageHRV ?? 0);
+
+  const hrvRaw = (
+    hrvRes.status === 'fulfilled' && typeof hrvRes.value === 'object' && hrvRes.value !== null
+      ? hrvRes.value : {}
+  ) as Record<string, unknown>;
+  const hrvSummary = (hrvRaw?.hrvSummary ?? hrvRaw) as Record<string, unknown>;
+  const hrvMs = Number(hrvSummary.lastNight ?? hrvSummary.lastNightAvg ?? 0) || sleepHRV;
+
+  const hrRaw = (hrRes.status === 'fulfilled' ? hrRes.value : {}) as Record<string, unknown>;
+  const rhr = Number(
+    hrRaw?.restingHeartRate ??
+    (hrRaw?.statisticsDTO as Record<string, unknown> | undefined)?.restingHeartRate ??
+    0
+  );
+
+  const result = { hrv: hrvMs, sleepHours: Math.round((sleepSeconds / 3600) * 10) / 10, rhr };
+  dayTrendCache.set(date, { ...result, ts: Date.now() });
+  return result;
+}
+
+// ── Demo/fallback trend generator ────────────────────────────────────────────
+// Used when no Garmin credentials are configured. Produces a realistic 7-day
+// training-cycle pattern so all pages work in demo mode.
+function generateMockTrendPoints(range: number, endDateStr: string): TrendPoint[] {
+  const endDate = new Date(endDateStr);
+  // Strain by day-of-week (Sun=0…Sat=6): Sun=rest, Tue/Thu/Sat=hard, others=moderate
+  const STRAIN_BY_DOW = [3.0, 8.5, 14.2, 9.5, 13.8, 8.0, 11.5];
+  const HRV_OFFSET    = [+6,  0,   -5,   +2,  -4,   +1,  -2  ];
+  const RHR_OFFSET    = [-2,  0,   +3,   0,   +3,   0,   +1  ];
+  const SLEEP_OFFSET  = [+0.6, 0, -0.4, +0.2, -0.3, 0, +0.3];
+
+  const HRV_BASE  = 50;
+  const RHR_BASE  = 58;
+  const SLEEP_BASE = 7.2;
+
+  const dates = Array.from({ length: range }, (_, i) =>
+    format(subDays(endDate, range - 1 - i), 'yyyy-MM-dd')
+  );
+
+  return dates.map((date, i) => {
+    const dow = new Date(date).getDay();
+    // Deterministic jitter using index
+    const jitter = (Math.sin(i * 2.7 + 1.3) * 0.5); // -0.5..+0.5 range
+
+    const strain      = Math.max(0, Math.min(21, STRAIN_BY_DOW[dow] + jitter * 3));
+    const hrv         = Math.max(20, HRV_BASE   + HRV_OFFSET[dow]   + jitter * 6);
+    const rhr         = Math.max(40, RHR_BASE   + RHR_OFFSET[dow]   + jitter * 3);
+    const sleepHours  = Math.max(4,  SLEEP_BASE + SLEEP_OFFSET[dow]  + jitter * 0.5);
+
+    // Compute recovery from hrv/rhr/sleep relative to a stable baseline
+    const sleepScore  = Math.min(100, Math.round((sleepHours / 8) * 100));
+    const recovery    = calculateRecoveryScore({
+      lastNightHRV: hrv,
+      baselineHRV:  HRV_BASE,
+      restingHR:    rhr,
+      baselineRHR:  RHR_BASE,
+      sleepScore,
+    });
+
+    return {
+      date,
+      hrv:        Math.round(hrv * 10) / 10,
+      sleepHours: Math.round(sleepHours * 10) / 10,
+      rhr:        Math.round(rhr),
+      recovery:   Math.round(recovery),
+      strain:     Math.round(strain * 10) / 10,
+    };
+  });
+}
+
+export async function fetchTrendData(range: number, endDateStr: string): Promise<TrendPoint[]> {
+  const cacheKey = `${endDateStr}-${range}`;
+  const cached = trendsCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < TRENDS_CACHE_TTL) return cached.data;
+
+  const client = await getClient();
+  if (!client) {
+    const mock = generateMockTrendPoints(range, endDateStr);
+    trendsCache.set(cacheKey, { data: mock, ts: Date.now() });
+    return mock;
+  }
+
+  const gc = client as GCClient;
+  const GC_API = 'https://connectapi.garmin.com';
+  const endDate = new Date(endDateStr);
+
+  const dates = Array.from({ length: range }, (_, i) =>
+    format(subDays(endDate, range - 1 - i), 'yyyy-MM-dd')
+  );
+
+  // Batch in groups of 7 to avoid overwhelming Garmin's API
+  const BATCH = 7;
+  const rawPoints: Array<{ hrv: number; sleepHours: number; rhr: number }> = [];
+
+  for (let i = 0; i < dates.length; i += BATCH) {
+    const batch = dates.slice(i, i + BATCH);
+    const results = await Promise.allSettled(batch.map(d => fetchDayTrend(gc, GC_API, d)));
+    for (const r of results) {
+      rawPoints.push(r.status === 'fulfilled' ? r.value : { hrv: 0, sleepHours: 0, rhr: 0 });
+    }
+    if (i + BATCH < dates.length) {
+      await new Promise(res => setTimeout(res, 200));
+    }
+  }
+
+  // Compute recovery using a rolling 7-day window as baseline
+  const points: TrendPoint[] = dates.map((date, i) => {
+    const pt = rawPoints[i];
+    const window = rawPoints.slice(Math.max(0, i - 6), i + 1);
+    const validHRV = window.filter(p => p.hrv > 0);
+    const validRHR = window.filter(p => p.rhr > 0);
+    const baseHRV = validHRV.length ? validHRV.reduce((s, p) => s + p.hrv, 0) / validHRV.length : 50;
+    const baseRHR = validRHR.length ? validRHR.reduce((s, p) => s + p.rhr, 0) / validRHR.length : 62;
+    const sleepScore = Math.min(100, Math.round((pt.sleepHours / 8) * 100));
+    const recovery = (pt.hrv === 0 && pt.rhr === 0 && pt.sleepHours === 0)
+      ? 0
+      : calculateRecoveryScore({
+          lastNightHRV: pt.hrv || baseHRV,
+          baselineHRV: baseHRV,
+          restingHR: pt.rhr || baseRHR,
+          baselineRHR: baseRHR,
+          sleepScore,
+        });
+    return { date, hrv: pt.hrv, sleepHours: pt.sleepHours, rhr: pt.rhr, recovery, strain: 0 };
+  });
+
+  trendsCache.set(cacheKey, { data: points, ts: Date.now() });
+  return points;
 }

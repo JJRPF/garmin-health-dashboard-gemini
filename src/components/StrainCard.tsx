@@ -17,9 +17,14 @@ const ACTIVITY_ICONS: Record<string, string> = {
 interface Props {
   activities: ActivityData[];
   todayStrain: number;
+  steps?: number;
+  floorsAscended?: number;
+  highlyActiveSeconds?: number;
+  bodyBatteryDrained?: number;
 }
 
-export default function StrainCard({ activities, todayStrain }: Props) {
+export default function StrainCard({ activities, todayStrain, steps = 0, floorsAscended = 0, highlyActiveSeconds = 0, bodyBatteryDrained = 0 }: Props) {
+  const highlyActiveMin = Math.round(highlyActiveSeconds / 60);
   const strainColor = getStrainColor(todayStrain);
 
   return (
@@ -57,9 +62,59 @@ export default function StrainCard({ activities, todayStrain }: Props) {
 
       {/* Activities */}
       {activities.length === 0 ? (
-        <p className="text-xs text-secondary text-center py-2">Sin actividades registradas hoy</p>
+        <div className="py-2 text-center">
+          <p className="text-xs text-secondary">Sin actividades registradas hoy</p>
+          {todayStrain > 0 && (
+            <div className="flex flex-wrap justify-center gap-2 mt-2">
+              {steps > 0 && (
+                <span className="text-[11px] text-muted bg-bg px-2 py-0.5 rounded-full">
+                  🚶 {steps.toLocaleString('es')} pasos
+                </span>
+              )}
+              {highlyActiveMin > 5 && (
+                <span className="text-[11px] text-muted bg-bg px-2 py-0.5 rounded-full">
+                  ⚡ {highlyActiveMin} min vigoroso
+                </span>
+              )}
+              {floorsAscended > 3 && (
+                <span className="text-[11px] text-muted bg-bg px-2 py-0.5 rounded-full">
+                  🏢 {floorsAscended} pisos
+                </span>
+              )}
+              {bodyBatteryDrained > 10 && (
+                <span className="text-[11px] text-muted bg-bg px-2 py-0.5 rounded-full">
+                  🔋 -{bodyBatteryDrained} batería
+                </span>
+              )}
+            </div>
+          )}
+        </div>
       ) : (
         <div className="flex flex-col gap-2">
+          {(steps > 0 || highlyActiveMin > 10 || floorsAscended > 3 || bodyBatteryDrained > 10) && (
+            <div className="flex flex-wrap gap-1.5 mb-1">
+              {steps > 0 && (
+                <span className="text-[10px] text-muted bg-bg px-2 py-0.5 rounded-full">
+                  🚶 {steps.toLocaleString('es')} pasos
+                </span>
+              )}
+              {highlyActiveMin > 10 && (
+                <span className="text-[10px] text-muted bg-bg px-2 py-0.5 rounded-full">
+                  ⚡ {highlyActiveMin} min vigoroso
+                </span>
+              )}
+              {floorsAscended > 3 && (
+                <span className="text-[10px] text-muted bg-bg px-2 py-0.5 rounded-full">
+                  🏢 {floorsAscended} pisos
+                </span>
+              )}
+              {bodyBatteryDrained > 10 && (
+                <span className="text-[10px] text-muted bg-bg px-2 py-0.5 rounded-full">
+                  🔋 -{bodyBatteryDrained} batería
+                </span>
+              )}
+            </div>
+          )}
           {activities.map((act, i) => (
             <div key={i} className="flex items-center gap-3 p-2 rounded-lg bg-bg">
               <span className="text-xl">

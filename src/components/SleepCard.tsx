@@ -17,9 +17,11 @@ interface Props {
   sleep: SleepData;
   /** Age-adjusted sleep duration benchmark; omit if no profile is set. */
   benchmark?: MetricBenchmark;
+  /** True when showing demo/mock data — score is estimated, not from Garmin. */
+  isDemo?: boolean;
 }
 
-export default function SleepCard({ sleep, benchmark }: Props) {
+export default function SleepCard({ sleep, benchmark, isDemo }: Props) {
   const totalHours = sleep.totalSleepSeconds / 3600;
 
   return (
@@ -27,9 +29,14 @@ export default function SleepCard({ sleep, benchmark }: Props) {
       <div className="card-header">
         <Moon size={14} className="text-sleep" />
         <span>Sueño</span>
-        <span className="ml-auto text-sm font-bold text-primary">
-          {sleep.sleepScore}
-          <span className="text-xs text-secondary ml-0.5">/ 100</span>
+        <span className="ml-auto flex flex-col items-end">
+          <span className="text-sm font-bold text-primary leading-none">
+            {sleep.sleepScore}
+            <span className="text-xs text-secondary ml-0.5">/ 100</span>
+          </span>
+          <span className="text-[9px] text-muted leading-none mt-0.5">
+            {isDemo ? 'estimado' : 'Garmin'}
+          </span>
         </span>
       </div>
 
