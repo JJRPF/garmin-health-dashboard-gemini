@@ -5,3 +5,6 @@ node_modules/
 *.log
 .DS_Store
 .vercel
+
+# Claude Code project settings (contain personal tokens)
+.claude/
