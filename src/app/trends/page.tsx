@@ -41,7 +41,7 @@ async function exportWeeklyPDF(data: DailyMetrics, translate: (k: string) => str
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(20);
   doc.setTextColor(...PRIM);
-  doc.text(t('trends.weeklySummary'), pad, y);
+  doc.text(translate('trends.weeklySummary'), pad, y);
   y += 8;
 
   doc.setFont('helvetica', 'normal');
