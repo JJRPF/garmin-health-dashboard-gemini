@@ -14,7 +14,7 @@ interface Props {
 
 export default function TrainingZonesCard({ restingHR, age, observedMaxHR, lastActivityAvgHR }: Props) {
   const { t } = useLang();
-  if (!restingHR || restingHR < 30) return null;
+  if (!restingHR || restingHR < 20) return null;
 
   const zones = calculateTrainingZones(restingHR, age, observedMaxHR);
 

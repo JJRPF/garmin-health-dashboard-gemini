@@ -22,7 +22,7 @@ interface Props {
 
 export default function VO2maxCard({ restingHR, age, sex, observedMaxHR }: Props) {
   const { t } = useLang();
-  if (!restingHR || restingHR < 30) return null;
+  if (!restingHR || restingHR < 20) return null;
 
   const vo2max = calculateVO2max(restingHR, age, observedMaxHR);
   const norm = getVO2maxCategory(vo2max, age, sex);

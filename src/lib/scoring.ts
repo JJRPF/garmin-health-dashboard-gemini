@@ -246,7 +246,7 @@ export function calculateVO2max(
   age: number,
   observedMaxHR?: number,
 ): number {
-  if (!restingHR || restingHR < 30) return 0;
+  if (!restingHR || restingHR < 20) return 0;
   const maxHR = observedMaxHR && observedMaxHR > 100
     ? observedMaxHR
     : Math.round(208 - 0.7 * age);
