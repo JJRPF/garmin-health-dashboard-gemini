@@ -8,6 +8,18 @@ A personal health dashboard that connects to Garmin Connect and displays your da
 
 ---
 
+## Screenshots
+
+| Dashboard | Sleep & HRV | Strain & Stress |
+|-----------|-------------|-----------------|
+| ![Dashboard](docs/screenshots/01-dashboard.jpeg) | ![Sleep & HRV](docs/screenshots/02-cards.jpeg) | ![Strain & Stress](docs/screenshots/03-strain-stress.jpeg) |
+
+| Sleep Detail | Strain Detail |
+|--------------|---------------|
+| ![Sleep Detail](docs/screenshots/04-sleep-detail.jpeg) | ![Strain Detail](docs/screenshots/05-strain-detail.jpeg) |
+
+---
+
 ## What it does
 
 | Screen | Metrics |
@@ -126,6 +138,18 @@ MIT © 2025 — free to use, modify, and distribute. See [LICENSE](LICENSE).
 Dashboard personal de salud que se conecta a Garmin Connect y muestra tus métricas diarias en una interfaz móvil limpia. Funciona con datos demo si no hay credenciales configuradas.
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/cggmx/garmin-health-dashboard&env=GARMIN_USERNAME,GARMIN_PASSWORD&envDescription=Credenciales%20de%20Garmin%20Connect.%20Deja%20vacío%20para%20usar%20datos%20demo.&project-name=garmin-health-dashboard&repository-name=garmin-health-dashboard)
+
+---
+
+## Capturas de pantalla
+
+| Dashboard | Sueño & HRV | Esfuerzo & Estrés |
+|-----------|-------------|-------------------|
+| ![Dashboard](docs/screenshots/01-dashboard.jpeg) | ![Sueño & HRV](docs/screenshots/02-cards.jpeg) | ![Esfuerzo & Estrés](docs/screenshots/03-strain-stress.jpeg) |
+
+| Detalle de Sueño | Detalle de Esfuerzo |
+|------------------|---------------------|
+| ![Detalle de Sueño](docs/screenshots/04-sleep-detail.jpeg) | ![Detalle de Esfuerzo](docs/screenshots/05-strain-detail.jpeg) |
 
 ---
 
