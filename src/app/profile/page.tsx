@@ -97,14 +97,14 @@ export default function ProfilePage() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-bold text-primary truncate">
-                {profile.name ?? (profile.sex === 'male' ? t('profile.male') : t('profile.female'))}, {profile.age} {t('common.units.years') as string || 'años'}
+                {profile.name ?? (profile.sex === 'male' ? t('profile.male') : t('profile.female'))}, {profile.age} {t('common.units.years')}
               </p>
               <p className="text-xs text-secondary">
                 {FITNESS_LABEL[profile.fitnessLevel]} · {GOAL_LABEL[profile.goal]}
               </p>
               {wb && (
                 <p className="text-xs mt-0.5" style={{ color: wb.color }}>
-                  {profile.weight} kg · IMC {wb.bmi} · {wb.label}
+                  {profile.weight} kg · {t('profile.bmiAcronym')} {wb.bmi} · {t(`profile.bmiLabels.${wb.category}`)}
                 </p>
               )}
             </div>
@@ -122,7 +122,7 @@ export default function ProfilePage() {
                 className="ml-auto text-xs font-semibold px-2 py-0.5 rounded-full"
                 style={{ color: wb.color, backgroundColor: `${wb.color}18` }}
               >
-                {wb.label}
+                {t(`profile.bmiLabels.${wb.category}`)}
               </span>
             </div>
 
@@ -132,7 +132,7 @@ export default function ProfilePage() {
                 {wb.bmi}
               </span>
               <div className="mb-1">
-                <p className="text-sm text-secondary leading-tight">{wb.description}</p>
+                <p className="text-sm text-secondary leading-tight">{t(`profile.bmiDescriptions.${wb.category}`, { kg: wb.distanceKg })}</p>
                 {wb.direction !== 'ok' && (
                   <p className="text-xs text-muted mt-0.5">
                     {t('profile.bmiHealthyRange', { min: wb.idealMin, max: wb.idealMax })}
