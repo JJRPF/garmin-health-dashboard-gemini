@@ -248,7 +248,7 @@ function HistoryTimeline({ entries, t }: { entries: InsightHistoryEntry[]; t: TF
                 opacity: entry ? 1 : isToday ? 0.6 : 0.3,
               }}
               title={entry
-                ? `${dateStr}: recuperación ${entry.recovery}%, sueño ${entry.sleepHours.toFixed(1)}h`
+                ? `${dateStr}: ${t('insights.tooltipRecovery')} ${entry.recovery}%, ${t('insights.tooltipSleep')} ${entry.sleepHours.toFixed(1)}h`
                 : dateStr}
             />
             {isToday && (

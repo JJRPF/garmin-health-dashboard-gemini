@@ -284,6 +284,7 @@ const es = {
     footer: 'Actualizado hoy · Datos de los últimos 7 días',
     readMore: 'Ver más',
     readLess: 'Ver menos',
+    regenerate: 'Regenerar análisis',
   },
   profile: {
     title: 'Mi perfil',
@@ -403,6 +404,8 @@ const es = {
     low: 'Baja',
     recoveryHistory: 'Historial de recuperación',
     days: '{count} días',
+    tooltipRecovery: 'recuperación',
+    tooltipSleep: 'sueño',
     msgs: {
       goodRecovery: 'Buena recuperación — {score}%',
       goodRecoveryDesc: 'Condiciones óptimas para un entrenamiento de calidad o alta intensidad.',

@@ -166,7 +166,7 @@ export default function WeeklySummaryCard({ trend, profile }: Props) {
           <span className="text-[10px] text-muted">{t('weeklySummary.badge')}</span>
           <button
             onClick={() => generate(true)}
-            title="Regenerar análisis"
+            title={t('weeklySummary.regenerate')}
             className="p-1 rounded-lg hover:bg-surface text-muted hover:text-secondary transition-colors"
           >
             <RefreshCw size={11} />

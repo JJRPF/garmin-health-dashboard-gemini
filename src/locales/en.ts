@@ -284,6 +284,7 @@ const en = {
     footer: 'Updated today · Last 7 days of data',
     readMore: 'Read more',
     readLess: 'Read less',
+    regenerate: 'Regenerate analysis',
   },
   profile: {
     title: 'My Profile',
@@ -403,6 +404,8 @@ const en = {
     low: 'Low',
     recoveryHistory: 'Recovery history',
     days: '{count} days',
+    tooltipRecovery: 'recovery',
+    tooltipSleep: 'sleep',
     msgs: {
       goodRecovery: 'Good recovery — {score}%',
       goodRecoveryDesc: 'Optimal conditions for a quality or high-intensity workout.',

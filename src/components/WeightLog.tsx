@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import { format, subDays, parseISO } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { enUS } from 'date-fns/locale';
 import { useLang } from '@/lib/i18n';
 import { Scale, TrendingDown, TrendingUp, Minus, Trash2, Plus } from 'lucide-react';
 import {
@@ -36,7 +37,7 @@ function linearRegressionSlope(points: { date: string; weight: number }[]): numb
 }
 
 export default function WeightLog({ profile }: Props) {
-  const { t } = useLang();
+  const { t, locale } = useLang();
   const { entries, addEntry, removeEntry, loaded } = useWeightLog();
   const [range, setRange] = useState<number>(30); // 30 | 90 | 0 (0 = all)
   const [inputDate, setInputDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
@@ -260,7 +261,7 @@ export default function WeightLog({ profile }: Props) {
             {historyEntries.map(e => (
               <div key={e.date} className="flex items-center py-1 text-xs gap-2">
                 <span className="text-secondary flex-1">
-                  {format(parseISO(e.date), "d 'de' MMMM", { locale: es })}
+                  {format(parseISO(e.date), locale === 'es' ? "d 'de' MMMM" : 'MMMM d', { locale: locale === 'es' ? es : enUS })}
                 </span>
                 <span className="text-primary font-semibold">{e.weight} kg</span>
                 <button

@@ -74,7 +74,7 @@ export default function Dashboard() {
         checkAndNotifyBattery(json.bodyBattery.current);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Error de conexión');
+      setError(e instanceof Error ? e.message : t('dashboard.error'));
     } finally {
       setLoading(false);
     }
