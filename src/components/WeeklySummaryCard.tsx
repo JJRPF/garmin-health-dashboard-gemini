@@ -1,10 +1,21 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Sparkles, RefreshCw, AlertCircle } from 'lucide-react';
+import { Sparkles, RefreshCw, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import type { WeeklyTrend } from '@/lib/types';
 import type { UserProfile } from '@/lib/types';
 import { useLang } from '@/lib/i18n';
+
+/** Strip markdown headings, bold, italic so plain text renders cleanly */
+function stripMarkdown(text: string): string {
+  return text
+    .replace(/^#{1,6}\s+/gm, '')          // headings
+    .replace(/\*\*(.*?)\*\*/g, '$1')       // bold
+    .replace(/\*(.*?)\*/g, '$1')           // italic
+    .replace(/`([^`]+)`/g, '$1')           // inline code
+    .replace(/\n{3,}/g, '\n\n')            // collapse excess blank lines
+    .trim();
+}
 
 interface Props {
   trend: WeeklyTrend;
@@ -37,6 +48,7 @@ export default function WeeklySummaryCard({ trend, profile }: Props) {
   const { t } = useLang();
   const [summary, setSummary] = useState<string>('');
   const [status, setStatus] = useState<Status>('idle');
+  const [expanded, setExpanded] = useState(false);
 
   const generate = useCallback(async (force = false) => {
     if (!force) {
@@ -162,12 +174,39 @@ export default function WeeklySummaryCard({ trend, profile }: Props) {
         </span>
       </div>
 
-      {/* Summary text */}
-      <p className="text-sm text-secondary leading-relaxed">
-        {summary}
-      </p>
+      {/* Summary text — collapsible */}
+      <div className="relative">
+        <p
+          className="text-sm text-secondary leading-relaxed whitespace-pre-line transition-all duration-300"
+          style={expanded ? undefined : {
+            display: '-webkit-box',
+            WebkitLineClamp: 5,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+          }}
+        >
+          {stripMarkdown(summary)}
+        </p>
 
-      <p className="text-[9px] text-muted mt-3 text-right">
+        {/* Fade overlay when collapsed */}
+        {!expanded && (
+          <div className="absolute bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-[#111111] to-transparent pointer-events-none" />
+        )}
+      </div>
+
+      {/* Expand / Collapse button */}
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="mt-2 flex items-center gap-1 text-[10px] text-purple-400 hover:text-purple-300 transition-colors"
+      >
+        {expanded ? (
+          <><ChevronUp size={11} />{t('weeklySummary.readLess')}</>
+        ) : (
+          <><ChevronDown size={11} />{t('weeklySummary.readMore')}</>
+        )}
+      </button>
+
+      <p className="text-[9px] text-muted mt-2 text-right">
         {t('weeklySummary.footer')}
       </p>
     </div>

@@ -280,6 +280,8 @@ const es = {
     errorDesc: 'Error al contactar con el servicio.',
     retry: 'Reintentar',
     footer: 'Actualizado hoy · Datos de los últimos 7 días',
+    readMore: 'Ver más',
+    readLess: 'Ver menos',
   },
   profile: {
     title: 'Mi perfil',
