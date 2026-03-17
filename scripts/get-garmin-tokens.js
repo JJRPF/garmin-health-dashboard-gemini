@@ -2,15 +2,13 @@
 /**
  * Run this script ONCE locally to get long-lived Garmin OAuth tokens.
  * Supports accounts with MFA (email verification code) enabled.
+ * Works on Mac, Linux, and Windows.
  *
- * Then add GARMIN_OAUTH1 and GARMIN_OAUTH2 to your Vercel env vars.
- *
- * Usage (reads from .env.local or prompts interactively):
+ * Usage:
  *   node scripts/get-garmin-tokens.js
  */
 
 const readline = require('readline');
-const FormData = require('form-data');
 
 // ── Load .env.local ──────────────────────────────────────────────────────────
 try {
@@ -53,68 +51,58 @@ async function prompt(question, hidden = false) {
   return new Promise(resolve => rl.question(question, ans => { rl.close(); resolve(ans.trim()); }));
 }
 
-// ── Patch garmin-connect to support MFA ─────────────────────────────────────
-// The library has handleMFA() as an empty stub. We capture the MFA HTML here,
-// then complete the OAuth flow manually after prompting the user for the code.
-let capturedMfaHtml = null;
-
-function patchMfaHandler() {
-  try {
-    const HttpClientModule = require('garmin-connect/dist/common/HttpClient');
-    const Ctor = HttpClientModule.HttpClient || Object.values(HttpClientModule).find(v => v?.prototype?.handleMFA);
-    if (Ctor) {
-      Ctor.prototype.handleMFA = function (htmlStr) {
-        // Detect MFA page by looking for the email code input field
-        if (
-          /name=["']?(mfa|verificationCode|code|otpCode)["']?/i.test(htmlStr) ||
-          /MFA|verification code|enter.*code|código/i.test(htmlStr)
-        ) {
-          capturedMfaHtml = htmlStr;
-        }
-      };
-    }
-  } catch (_) { /* ignore — patch is best-effort */ }
+// ── MFA HTML detection ───────────────────────────────────────────────────────
+function isMfaHtml(html) {
+  if (typeof html !== 'string') return false;
+  return (
+    /name=["']?(mfa|verificationCode|code|otpCode)["']?/i.test(html) ||
+    /MFA|verification code|enter.*code|email.*code/i.test(html)
+  );
 }
 
-// ── Complete OAuth flow after MFA submission ─────────────────────────────────
+// ── Complete MFA flow ────────────────────────────────────────────────────────
 async function completeMfaLogin(httpClient, mfaHtml) {
-  const TICKET_RE = /ticket=([^"]+)"/;
+  const TICKET_RE = /ticket=([^"&\s]+)/;
 
-  // Parse form action URL from the MFA page
+  // Parse form action URL
   const actionMatch = mfaHtml.match(/action="([^"]+)"/);
   const mfaUrl = actionMatch
     ? actionMatch[1].replace(/&amp;/g, '&')
     : 'https://sso.garmin.com/sso/verifyMFA/loginEnterMfaCode';
 
   // Parse CSRF token
-  const csrfMatch = mfaHtml.match(/name=["']?_csrf["']?\s+value="([^"]+)"/);
-  if (!csrfMatch) throw new Error('Could not find CSRF token in MFA page. Please open a GitHub issue.');
+  const csrfMatch = mfaHtml.match(/name=["']?_csrf["']?[^>]+value="([^"]+)"/i)
+    || mfaHtml.match(/value="([^"]+)"[^>]+name=["']?_csrf["']?/i);
+  if (!csrfMatch) {
+    throw new Error(
+      'Could not find CSRF token in MFA page.\n' +
+      'Please open a GitHub issue at https://github.com/cggmx/garmin-health-dashboard/issues'
+    );
+  }
 
-  // Detect field name (mfa / verificationCode / etc.)
+  // Detect field name (mfa / verificationCode / code / otpCode)
   const fieldMatch = mfaHtml.match(/name=["']?(mfa|verificationCode|code|otpCode)["']?/i);
   const fieldName = fieldMatch ? fieldMatch[1] : 'mfa';
 
-  // Prompt user for the email code
-  const mfaCode = await prompt('\n📧  Check your email for the Garmin verification code: ');
+  // Prompt for code
+  const mfaCode = await prompt('\n📧  Enter the verification code from your email: ');
   if (!mfaCode) throw new Error('No verification code entered.');
 
-  // Build and POST the MFA form using the same axios session (has cookies)
-  const form = new FormData();
-  form.append(fieldName, mfaCode.trim());
-  form.append('_csrf', csrfMatch[1]);
-  form.append('embed', 'true');
-  form.append('fromPage', 'setupPasswordPage');
+  // POST MFA using URLSearchParams (no extra dependencies, works on all platforms)
+  const params = new URLSearchParams();
+  params.set(fieldName, mfaCode.trim());
+  params.set('_csrf', csrfMatch[1]);
+  params.set('embed', 'true');
+  params.set('fromPage', 'setupPasswordPage');
 
-  const referer = httpClient.url
-    ? (httpClient.url.SIGNIN_URL || 'https://sso.garmin.com/sso/signin')
-    : 'https://sso.garmin.com/sso/signin';
-
-  const response = await httpClient.client.post(mfaUrl, form, {
+  // Use the same axios instance (preserves cookies from the login session)
+  const axiosInst = httpClient.client;
+  const response = await axiosInst.post(mfaUrl, params.toString(), {
     headers: {
       'Content-Type': 'application/x-www-form-urlencoded',
       Origin: 'https://sso.garmin.com',
-      Referer: referer,
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.0.0 Safari/537.36',
+      Referer: 'https://sso.garmin.com/sso/signin',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
     },
     maxRedirects: 5,
   });
@@ -123,24 +111,33 @@ async function completeMfaLogin(httpClient, mfaHtml) {
   const ticketMatch = TICKET_RE.exec(html);
   if (!ticketMatch) {
     throw new Error(
-      'MFA code rejected or expired — please try again.\n' +
-      'If the code is correct, Garmin may require you to temporarily disable ' +
-      '2-factor authentication to use this script.'
+      'MFA code rejected or expired.\n' +
+      '  • Make sure you enter the code quickly (expires in ~5 min)\n' +
+      '  • If this keeps failing, temporarily disable 2FA in your Garmin account,\n' +
+      '    run this script, then re-enable it.'
     );
   }
 
-  const ticket = ticketMatch[1];
   console.log('  MFA accepted ✓');
-
-  // Complete the standard OAuth flow
-  const oauth1 = await httpClient.getOauth1Token(ticket);
+  const oauth1 = await httpClient.getOauth1Token(ticketMatch[1]);
   await httpClient.exchange(oauth1);
+}
+
+// ── Save tokens to Vercel ────────────────────────────────────────────────────
+// Uses stdin pipe instead of shell echo — works on Mac, Linux and Windows CMD/PowerShell
+function addVercelEnv(name, value, cwd) {
+  const { execFileSync } = require('child_process');
+  // npx on Windows is npx.cmd
+  const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+  execFileSync(npx, ['vercel', 'env', 'add', name, 'production', '--force'], {
+    input: value + '\n',
+    stdio: ['pipe', 'inherit', 'inherit'],
+    cwd,
+  });
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 async function main() {
-  patchMfaHandler();
-
   const { GarminConnect } = require('garmin-connect');
 
   let user = process.env.GARMIN_USERNAME;
@@ -157,33 +154,56 @@ async function main() {
   const client = new GarminConnect({ username: user, password: pass });
   const httpClient = client.client; // internal HttpClient instance
 
+  // ── Patch handleMFA on the INSTANCE (not the prototype/module) ──────────
+  // This is reliable on all platforms — no module import needed.
+  let capturedMfaHtml = null;
+
+  if (httpClient && typeof httpClient === 'object') {
+    const original = httpClient.handleMFA?.bind(httpClient);
+    httpClient.handleMFA = function (htmlStr) {
+      if (isMfaHtml(htmlStr)) capturedMfaHtml = htmlStr;
+      if (original) original(htmlStr); // call original stub too
+    };
+  }
+
+  // ── Backup: axios response interceptor ───────────────────────────────────
+  // Catches the MFA page even if handleMFA is not called by this version
+  const axiosInst = httpClient?.client;
+  if (axiosInst?.interceptors) {
+    axiosInst.interceptors.response.use((response) => {
+      if (isMfaHtml(response.data) && !capturedMfaHtml) {
+        capturedMfaHtml = response.data;
+      }
+      return response;
+    }, (error) => Promise.reject(error));
+  }
+
   console.log(`\n🔐  Logging in as ${user}...`);
 
   try {
     await client.login();
     console.log('  Login successful (no MFA required) ✓');
   } catch (err) {
-    // Check if MFA was triggered
     if (capturedMfaHtml) {
-      console.log('  MFA required — checking your email code...');
+      console.log('  MFA required — waiting for your email code...');
       try {
         await completeMfaLogin(httpClient, capturedMfaHtml);
       } catch (mfaErr) {
         console.error('\n❌  MFA flow failed:', mfaErr.message);
-        console.error('\nTroubleshooting:');
-        console.error('  1. Make sure you enter the code quickly (it expires in ~5 min)');
-        console.error('  2. Alternatively, temporarily disable 2FA in your Garmin account,');
-        console.error('     run this script, then re-enable it.');
         process.exit(1);
       }
     } else {
       console.error('\n❌  Login failed:', err.message);
-      console.error('\nCheck your username and password and try again.');
+      console.error('\nPossible causes:');
+      console.error('  • Wrong email or password');
+      console.error('  • Garmin is rate-limiting your account — wait 1-2 hours and try again');
+      console.error('  • Your account uses an authenticator app (not email) for 2FA —');
+      console.error('    temporarily disable 2FA, run this script, then re-enable it');
       process.exit(1);
     }
   }
 
-  // Extract tokens
+  // ── Extract tokens ───────────────────────────────────────────────────────
   const oauth1 = httpClient.oauth1Token;
   const oauth2 = httpClient.oauth2Token;
 
@@ -197,39 +217,29 @@ async function main() {
 
   console.log('\n✅  Tokens obtained!\n');
 
-  // Try to add tokens to Vercel automatically
-  const { execSync } = require('child_process');
+  // ── Save to Vercel ───────────────────────────────────────────────────────
+  const cwd = require('path').join(__dirname, '..');
+  const { execFileSync } = require('child_process');
+  const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+
   try {
     console.log('Adding GARMIN_OAUTH1 to Vercel...');
-    execSync(`echo '${o1}' | npx vercel env add GARMIN_OAUTH1 production --force`, {
-      stdio: 'inherit',
-      cwd: require('path').join(__dirname, '..'),
-    });
+    addVercelEnv('GARMIN_OAUTH1', o1, cwd);
     console.log('Adding GARMIN_OAUTH2 to Vercel...');
-    execSync(`echo '${o2}' | npx vercel env add GARMIN_OAUTH2 production --force`, {
-      stdio: 'inherit',
-      cwd: require('path').join(__dirname, '..'),
-    });
-    console.log('\n✅  GARMIN_OAUTH1 and GARMIN_OAUTH2 added to Vercel!');
-    console.log('⚠️   Tokens expire in ~90 days — re-run this script then.\n');
-    console.log('Deploying to apply the new env vars...');
-    execSync('npx vercel --prod', {
-      stdio: 'inherit',
-      cwd: require('path').join(__dirname, '..'),
-    });
+    addVercelEnv('GARMIN_OAUTH2', o2, cwd);
+    console.log('\n✅  Tokens added to Vercel!');
+    console.log('⚠️   Tokens expire in ~90 days — re-run this script when they do.\n');
+    console.log('Deploying...');
+    execFileSync(npx, ['vercel', '--prod'], { stdio: 'inherit', cwd });
     console.log('\n🎉  Done! Your dashboard should now show real Garmin data.\n');
   } catch (_) {
-    // Auto-add failed — print manually
-    console.log('⚠️  Could not add to Vercel automatically. Add these manually:\n');
-    console.log('In Vercel → Project → Settings → Environment Variables:\n');
-    console.log('  Name : GARMIN_OAUTH1');
+    console.log('\n⚠️  Could not save to Vercel automatically.');
+    console.log('Add these manually in Vercel → Project → Settings → Environment Variables:\n');
+    console.log('  Name:  GARMIN_OAUTH1');
     console.log('  Value:', o1);
-    console.log('\n  Name : GARMIN_OAUTH2');
+    console.log('\n  Name:  GARMIN_OAUTH2');
     console.log('  Value:', o2);
-    console.log('\nOr via CLI:');
-    console.log(`  echo '${o1}' | npx vercel env add GARMIN_OAUTH1 production`);
-    console.log(`  echo '${o2}' | npx vercel env add GARMIN_OAUTH2 production`);
-    console.log('\nThen redeploy: npx vercel --prod\n');
+    console.log('\nThen go to Vercel → Deployments → Redeploy.\n');
   }
 }
 
