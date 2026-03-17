@@ -136,6 +136,20 @@ The script will:
 
 ---
 
+## Mobile installation (PWA) · APK / Play Store
+
+**Is there an APK or Play Store version?**
+Not at this time. The app is self-hosted by design — your Garmin credentials never leave your own server. A Play Store version would require a central server storing everyone's credentials, which has significant privacy and cost implications incompatible with the open-source, zero-cost nature of this project.
+
+**The good news:** the app is installable as a PWA directly from your browser — no app store needed, full-screen experience, home screen icon, and push notifications included.
+
+| Platform | Steps |
+|----------|-------|
+| **iPhone / iPad** | Open in Safari → tap Share → "Add to Home Screen" |
+| **Android** | Open in Chrome → tap menu (⋮) → "Add to Home Screen" or "Install app" |
+
+---
+
 ## Privacy
 
 - Garmin credentials are stored **only in your server environment** (Vercel env vars or `.env.local`)
@@ -286,6 +300,20 @@ El script:
 4. Redespliega la app
 
 > **Expiración**: los tokens duran ~90 días. Vuelve a ejecutar el script cuando expiren. Con `GARMIN_OAUTH1` / `GARMIN_OAUTH2` configurados, `GARMIN_USERNAME` / `GARMIN_PASSWORD` siguen siendo necesarios para mostrar tu nombre, pero no para autenticarse.
+
+---
+
+## Instalación móvil (PWA) · APK / Play Store
+
+**¿Hay una APK o versión en la Play Store?**
+Por el momento no. La app es self-hosted por diseño — tus credenciales de Garmin nunca salen de tu propio servidor. Una versión en la Play Store requeriría un servidor central que almacene las credenciales de todos los usuarios, lo que implica responsabilidades de privacidad y costos incompatibles con la naturaleza open-source y gratuita de este proyecto.
+
+**La buena noticia:** la app se puede instalar como PWA directamente desde el navegador — sin pasar por ninguna tienda, con experiencia en pantalla completa, ícono en el home y notificaciones push incluidas.
+
+| Plataforma | Pasos |
+|------------|-------|
+| **iPhone / iPad** | Abre en Safari → toca Compartir → "Agregar a pantalla de inicio" |
+| **Android** | Abre en Chrome → menú (⋮) → "Agregar a pantalla de inicio" o "Instalar app" |
 
 ---
 
