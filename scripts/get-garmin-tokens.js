@@ -83,12 +83,8 @@ async function completeMfaLogin(httpClient, mfaHtml) {
     : null;
 
   const csrf = csrfToken || csrfFallback;
-  if (!csrf) {
-    throw new Error(
-      'Could not find CSRF token in MFA page.\n' +
-      'Please open a GitHub issue at https://github.com/cggmx/garmin-health-dashboard/issues'
-    );
-  }
+  // csrf may be null — we'll try without it if needed (some Garmin SSO flows
+  // don't require it when session cookies are present)
 
   // Detect field name (mfa / verificationCode / code / otpCode)
   const fieldMatch = mfaHtml.match(/name=["']?(mfa|verificationCode|code|otpCode)["']?/i);
@@ -101,7 +97,7 @@ async function completeMfaLogin(httpClient, mfaHtml) {
   // POST MFA using URLSearchParams (no extra dependencies, works on all platforms)
   const params = new URLSearchParams();
   params.set(fieldName, mfaCode.trim());
-  params.set('_csrf', csrf);
+  if (csrf) params.set('_csrf', csrf);
   params.set('embed', 'true');
   params.set('fromPage', 'setupPasswordPage');
 
