@@ -120,13 +120,23 @@ async function ssoLogin(axiosInst, username, password) {
   const ticket2 = html2.match(/ticket=([^"&\s]+)/);
   if (ticket2) return ticket2[1];
 
-  // Check for MFA page
-  const isMfa = /MFA|verif|enter.*code|email.*code/i.test(html2);
-  if (!isMfa) {
-    throw new Error(
-      'Login failed — please check your email and password.\n' +
-      'If correct, Garmin may be rate-limiting your account. Wait 1-2 hours and try again.'
+  // Detect MFA by HTML content OR by final response URL
+  const finalUrl = page2.request?.res?.responseUrl || page2.config?.url || '';
+  const isMfaByUrl  = /MFA|verifyMFA|mfa/i.test(finalUrl);
+  const isMfaByHtml = /MFA|verif|enter.*code|email.*code|loginEnterMfa/i.test(html2);
+
+  // If neither URL nor HTML looks like MFA, ask the user before giving up —
+  // Garmin sometimes sends the email code even when the HTML response is unexpected
+  if (!isMfaByUrl && !isMfaByHtml) {
+    const gotCode = await prompt(
+      '\n⚠️  Unexpected response from Garmin. Did you receive a verification code by email? (yes/no): '
     );
+    if (!gotCode.toLowerCase().startsWith('y')) {
+      throw new Error(
+        'Login failed — please check your email and password.\n' +
+        'If correct, Garmin may be rate-limiting your account. Wait 1-2 hours and try again.'
+      );
+    }
   }
 
   // Step 3: MFA — we are still in the same session, so the code will be accepted
