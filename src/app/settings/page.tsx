@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useLang } from "@/lib/i18n";
-import { ChevronLeft, Save, Sparkles, Brain, User, Lock, Key, Activity, RefreshCw } from "lucide-react";
+import { ChevronLeft, Save, Sparkles, Brain, User, Lock, Key, Activity, RefreshCw, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import BottomNav from "@/components/BottomNav";
 
@@ -18,8 +18,12 @@ export default function SettingsPage() {
   const [garminOAuth2, setGarminOAuth2] = useState("");
   
   const [message, setMessage] = useState("");
-  const [isTesting, setIsTesting] = useState(false);
   const [isHydrated, setIsHydrated] = useState(false);
+
+  // Auth flow state
+  const [authStatus, setAuthStatus] = useState<"idle" | "loading" | "mfa_required" | "success" | "error">("idle");
+  const [mfaCode, setMfaCode] = useState("");
+  const [authState, setAuthState] = useState<any>(null);
 
   // Hydration safety: read from localStorage on mount
   useEffect(() => {
@@ -54,29 +58,84 @@ export default function SettingsPage() {
     setTimeout(() => setMessage(""), 3000);
   };
 
-  const testGarminConnection = async () => {
-    setIsTesting(true);
-    setMessage("");
-    try {
-      const headers: Record<string, string> = {};
-      if (garminUsername) headers['x-garmin-username'] = garminUsername;
-      if (garminPassword) headers['x-garmin-password'] = garminPassword;
-      if (garminOAuth1) headers['x-garmin-oauth1'] = garminOAuth1;
-      if (garminOAuth2) headers['x-garmin-oauth2'] = garminOAuth2;
+  const startGarminLogin = async () => {
+    if (!garminUsername || !garminPassword) {
+      setMessage("Enter email and password first");
+      return;
+    }
 
-      const res = await fetch('/api/health?date=' + new Date().toISOString().split('T')[0], { headers });
+    setAuthStatus("loading");
+    setMessage("");
+    
+    try {
+      const res = await fetch("/api/auth/garmin", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "login",
+          username: garminUsername,
+          password: garminPassword,
+        }),
+      });
+
       const data = await res.json();
-      
-      if (data.isDemo) {
-        setMessage("❌ Connection failed: " + (data.demoReason || "Unknown error"));
+
+      if (data.status === "mfa_required") {
+        setAuthStatus("mfa_required");
+        setAuthState(data.state);
+        setMessage("Verification code sent to your email");
+      } else if (data.status === "success") {
+        saveTokens(data.tokens);
       } else {
-        setMessage("✅ Success! Data fetched for " + (garminUsername || "your account"));
+        setAuthStatus("error");
+        setMessage(data.error || "Login failed");
       }
     } catch (e) {
-      setMessage("❌ Network error testing connection");
-    } finally {
-      setIsTesting(false);
+      setAuthStatus("error");
+      setMessage("Connection error");
     }
+  };
+
+  const verifyMfaCode = async () => {
+    if (!mfaCode) return;
+
+    setAuthStatus("loading");
+    try {
+      const res = await fetch("/api/auth/garmin", {
+        method: "POST",
+        body: JSON.stringify({
+          action: "verify",
+          username: garminUsername,
+          password: garminPassword,
+          mfaCode,
+          state: authState,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.status === "success") {
+        saveTokens(data.tokens);
+      } else {
+        setAuthStatus("mfa_required");
+        setMessage(data.error || "Invalid code");
+      }
+    } catch (e) {
+      setAuthStatus("error");
+      setMessage("Verification failed");
+    }
+  };
+
+  const saveTokens = (tokens: any) => {
+    const o1 = JSON.stringify(tokens.oauth1);
+    const o2 = JSON.stringify(tokens.oauth2);
+    setGarminOAuth1(o1);
+    setGarminOAuth2(o2);
+    localStorage.setItem("garminOAuth1", o1);
+    localStorage.setItem("garminOAuth2", o2);
+    setAuthStatus("success");
+    setMessage("✅ Connected successfully!");
+    setMfaCode("");
+    setAuthState(null);
   };
 
   if (!isHydrated) {
@@ -120,6 +179,7 @@ export default function SettingsPage() {
                   onChange={(e) => setGarminUsername(e.target.value)}
                   className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary transition-colors text-white"
                   placeholder="your@email.com"
+                  disabled={authStatus === "loading"}
                 />
               </div>
 
@@ -133,48 +193,90 @@ export default function SettingsPage() {
                   onChange={(e) => setGarminPassword(e.target.value)}
                   className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary transition-colors text-white"
                   placeholder="••••••••"
+                  disabled={authStatus === "loading"}
                 />
               </div>
 
-              <button
-                onClick={testGarminConnection}
-                disabled={isTesting || (!garminUsername && !garminOAuth1)}
-                className="mt-2 py-3 px-4 rounded-xl bg-surface border border-border text-xs font-bold text-secondary hover:text-primary transition-all flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-50"
-              >
-                {isTesting ? <RefreshCw size={14} className="animate-spin" /> : <Activity size={14} />}
-                <span>{isTesting ? "Testing..." : "Test & Verify Connection"}</span>
-              </button>
+              {authStatus === "mfa_required" ? (
+                <div className="bg-primary/5 border border-primary/20 rounded-2xl p-4 animate-fade-up">
+                  <div className="flex items-center gap-2 text-primary mb-3">
+                    <ShieldCheck size={16} />
+                    <span className="text-xs font-bold uppercase tracking-wider">MFA Required</span>
+                  </div>
+                  <input
+                    type="text"
+                    value={mfaCode}
+                    onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    className="w-full bg-bg border border-primary/30 rounded-xl px-4 py-3 text-center text-lg font-black tracking-[0.5em] focus:outline-none focus:border-primary transition-colors text-white mb-3"
+                    placeholder="000000"
+                    autoFocus
+                  />
+                  <button
+                    onClick={verifyMfaCode}
+                    disabled={authStatus === "loading" || mfaCode.length < 6}
+                    className="w-full py-3 px-4 rounded-xl bg-primary text-white text-xs font-bold flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-50"
+                  >
+                    {authStatus === "loading" ? <RefreshCw size={14} className="animate-spin" /> : null}
+                    Verify & Connect
+                  </button>
+                  <button 
+                    onClick={() => setAuthStatus("idle")}
+                    className="w-full mt-2 py-2 text-[10px] text-muted hover:text-secondary"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={startGarminLogin}
+                  disabled={authStatus === "loading" || !garminUsername || !garminPassword}
+                  className="mt-2 py-3 px-4 rounded-xl bg-primary/10 border border-primary/30 text-xs font-bold text-primary hover:bg-primary/20 transition-all flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-50"
+                >
+                  {authStatus === "loading" ? <RefreshCw size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
+                  <span>{authStatus === "loading" ? "Connecting..." : "Sign in to Garmin"}</span>
+                </button>
+              )}
 
               <div className="pt-4 border-t border-border mt-2">
-                <p className="text-[10px] text-muted mb-4 italic leading-relaxed">
-                  {t("settings.mfaNote")}
-                </p>
-                
-                <div className="flex flex-col gap-4">
-                  <div>
-                    <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5 ml-1">
-                      {t("settings.garminOAuth1")}
-                    </label>
-                    <textarea
-                      value={garminOAuth1}
-                      onChange={(e) => setGarminOAuth1(e.target.value)}
-                      className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-[10px] font-mono h-24 focus:outline-none focus:border-primary transition-colors text-white resize-none"
-                      placeholder='{"oauth_token":"...","oauth_token_secret":"..."}'
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5 ml-1">
-                      {t("settings.garminOAuth2")}
-                    </label>
-                    <textarea
-                      value={garminOAuth2}
-                      onChange={(e) => setGarminOAuth2(e.target.value)}
-                      className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-[10px] font-mono h-24 focus:outline-none focus:border-primary transition-colors text-white resize-none"
-                      placeholder='{"access_token":"...","refresh_token":"..."}'
-                    />
-                  </div>
+                <div className="flex items-center justify-between mb-4">
+                  <label className="text-[10px] font-bold text-muted uppercase tracking-wider ml-1">
+                    Advanced / Manual Tokens
+                  </label>
+                  <button 
+                    onClick={() => setAuthStatus(authStatus === "idle" ? "success" : "idle")} 
+                    className="text-[9px] text-muted hover:text-secondary underline"
+                  >
+                    {garminOAuth1 ? "Show Tokens" : "Paste Manually"}
+                  </button>
                 </div>
+                
+                {(garminOAuth1 || authStatus === "success") && (
+                  <div className="flex flex-col gap-4 animate-fade-in">
+                    <div>
+                      <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5 ml-1">
+                        {t("settings.garminOAuth1")}
+                      </label>
+                      <textarea
+                        value={garminOAuth1}
+                        onChange={(e) => setGarminOAuth1(e.target.value)}
+                        className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-[10px] font-mono h-20 focus:outline-none focus:border-primary transition-colors text-white resize-none"
+                        placeholder='{"oauth_token":"...","oauth_token_secret":"..."}'
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5 ml-1">
+                        {t("settings.garminOAuth2")}
+                      </label>
+                      <textarea
+                        value={garminOAuth2}
+                        onChange={(e) => setGarminOAuth2(e.target.value)}
+                        className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-[10px] font-mono h-20 focus:outline-none focus:border-primary transition-colors text-white resize-none"
+                        placeholder='{"access_token":"...","refresh_token":"..."}'
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
