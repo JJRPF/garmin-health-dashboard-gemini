@@ -1,7 +1,12 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {
-    serverComponentsExternalPackages: ['garmin-connect', 'web-push'],
+    serverComponentsExternalPackages: [
+      '@gooin/garmin-connect',
+      'axios-cookiejar-support',
+      'tough-cookie',
+      'web-push'
+    ],
   },
 };
 

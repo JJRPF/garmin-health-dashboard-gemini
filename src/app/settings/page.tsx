@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useLang } from "@/lib/i18n";
-import { ChevronLeft, Save, Sparkles, Brain, User, Lock, Key, Activity, RefreshCw, ShieldCheck } from "lucide-react";
+import { ChevronLeft, Save, Sparkles, Brain, User, Activity, RefreshCw, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import BottomNav from "@/components/BottomNav";
 
@@ -21,7 +21,8 @@ export default function SettingsPage() {
   const [isHydrated, setIsHydrated] = useState(false);
 
   // Auth flow state
-  const [authStatus, setAuthStatus] = useState<"idle" | "loading" | "mfa_required" | "success" | "error">("idle");
+  const [authStatus, setAuthStatus] = useState<"idle" | "mfa_required" | "success" | "error">("idle");
+  const [isProcessing, setIsProcessing] = useState(false);
   const [mfaCode, setMfaCode] = useState("");
   const [authState, setAuthState] = useState<any>(null);
 
@@ -64,7 +65,8 @@ export default function SettingsPage() {
       return;
     }
 
-    setAuthStatus("loading");
+    setIsProcessing(true);
+    setAuthStatus("idle");
     setMessage("");
     
     try {
@@ -92,13 +94,15 @@ export default function SettingsPage() {
     } catch (e) {
       setAuthStatus("error");
       setMessage("Connection error");
+    } finally {
+      setIsProcessing(false);
     }
   };
 
   const verifyMfaCode = async () => {
     if (!mfaCode) return;
 
-    setAuthStatus("loading");
+    setIsProcessing(true);
     try {
       const res = await fetch("/api/auth/garmin", {
         method: "POST",
@@ -122,6 +126,8 @@ export default function SettingsPage() {
     } catch (e) {
       setAuthStatus("error");
       setMessage("Verification failed");
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -179,7 +185,7 @@ export default function SettingsPage() {
                   onChange={(e) => setGarminUsername(e.target.value)}
                   className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary transition-colors text-white"
                   placeholder="your@email.com"
-                  disabled={authStatus === "loading"}
+                  disabled={isProcessing}
                 />
               </div>
 
@@ -193,7 +199,7 @@ export default function SettingsPage() {
                   onChange={(e) => setGarminPassword(e.target.value)}
                   className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary transition-colors text-white"
                   placeholder="••••••••"
-                  disabled={authStatus === "loading"}
+                  disabled={isProcessing}
                 />
               </div>
 
@@ -213,10 +219,10 @@ export default function SettingsPage() {
                   />
                   <button
                     onClick={verifyMfaCode}
-                    disabled={authStatus === "loading" || mfaCode.length < 6}
+                    disabled={isProcessing || mfaCode.length < 6}
                     className="w-full py-3 px-4 rounded-xl bg-primary text-white text-xs font-bold flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-50"
                   >
-                    {authStatus === "loading" ? <RefreshCw size={14} className="animate-spin" /> : null}
+                    {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : null}
                     Verify & Connect
                   </button>
                   <button 
@@ -229,11 +235,11 @@ export default function SettingsPage() {
               ) : (
                 <button
                   onClick={startGarminLogin}
-                  disabled={authStatus === "loading" || !garminUsername || !garminPassword}
+                  disabled={isProcessing || !garminUsername || !garminPassword}
                   className="mt-2 py-3 px-4 rounded-xl bg-primary/10 border border-primary/30 text-xs font-bold text-primary hover:bg-primary/20 transition-all flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-50"
                 >
-                  {authStatus === "loading" ? <RefreshCw size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
-                  <span>{authStatus === "loading" ? "Connecting..." : "Sign in to Garmin"}</span>
+                  {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
+                  <span>{isProcessing ? "Connecting..." : "Sign in to Garmin"}</span>
                 </button>
               )}
 

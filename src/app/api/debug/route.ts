@@ -18,7 +18,7 @@ export async function GET(req: Request) {
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { GarminConnect } = require('garmin-connect');
+    const { GarminConnect } = require('@gooin/garmin-connect');
     const client = new GarminConnect({
       username: process.env.GARMIN_USERNAME,
       password: process.env.GARMIN_PASSWORD,
