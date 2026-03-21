@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useLang } from "@/lib/i18n";
-import { ChevronLeft, Save, Sparkles, Brain } from "lucide-react";
+import { ChevronLeft, Save, Sparkles, Brain, User, Lock, Key } from "lucide-react";
 import Link from "next/link";
 import BottomNav from "@/components/BottomNav";
 
@@ -12,6 +12,11 @@ export default function SettingsPage() {
   const [aiProvider, setAiProvider] = useState<"anthropic" | "gemini">("anthropic");
   const [anthropicKey, setAnthropicKey] = useState("");
   const [googleKey, setGoogleKey] = useState("");
+  const [garminUsername, setGarminUsername] = useState("");
+  const [garminPassword, setGarminPassword] = useState("");
+  const [garminOAuth1, setGarminOAuth1] = useState("");
+  const [garminOAuth2, setGarminOAuth2] = useState("");
+  
   const [message, setMessage] = useState("");
   const [isHydrated, setIsHydrated] = useState(false);
 
@@ -20,10 +25,18 @@ export default function SettingsPage() {
     const savedProvider = localStorage.getItem("aiProvider") as "anthropic" | "gemini" | null;
     const savedAnthropicKey = localStorage.getItem("anthropicKey") || "";
     const savedGoogleKey = localStorage.getItem("googleKey") || "";
+    const savedGarminUsername = localStorage.getItem("garminUsername") || "";
+    const savedGarminPassword = localStorage.getItem("garminPassword") || "";
+    const savedGarminOAuth1 = localStorage.getItem("garminOAuth1") || "";
+    const savedGarminOAuth2 = localStorage.getItem("garminOAuth2") || "";
 
     if (savedProvider) setAiProvider(savedProvider);
     setAnthropicKey(savedAnthropicKey);
     setGoogleKey(savedGoogleKey);
+    setGarminUsername(savedGarminUsername);
+    setGarminPassword(savedGarminPassword);
+    setGarminOAuth1(savedGarminOAuth1);
+    setGarminOAuth2(savedGarminOAuth2);
     setIsHydrated(true);
   }, []);
 
@@ -31,6 +44,10 @@ export default function SettingsPage() {
     localStorage.setItem("aiProvider", aiProvider);
     localStorage.setItem("anthropicKey", anthropicKey);
     localStorage.setItem("googleKey", googleKey);
+    localStorage.setItem("garminUsername", garminUsername);
+    localStorage.setItem("garminPassword", garminPassword);
+    localStorage.setItem("garminOAuth1", garminOAuth1);
+    localStorage.setItem("garminOAuth2", garminOAuth2);
     
     setMessage(t("settings.success"));
     setTimeout(() => setMessage(""), 3000);
@@ -56,6 +73,77 @@ export default function SettingsPage() {
       </header>
 
       <main className="max-w-md mx-auto px-4 pt-6 flex flex-col gap-6">
+        {/* Garmin Section */}
+        <div className="card">
+          <div className="card-header mb-4">
+            <User size={14} className="text-primary" />
+            <span>{t("settings.garminSection")}</span>
+          </div>
+
+          <div className="flex flex-col gap-4">
+            <div>
+              <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5 ml-1">
+                {t("settings.garminUsername")}
+              </label>
+              <div className="relative">
+                <input
+                  type="email"
+                  value={garminUsername}
+                  onChange={(e) => setGarminUsername(e.target.value)}
+                  className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary transition-colors"
+                  placeholder="your@email.com"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5 ml-1">
+                {t("settings.garminPassword")}
+              </label>
+              <input
+                type="password"
+                value={garminPassword}
+                onChange={(e) => setGarminPassword(e.target.value)}
+                className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary transition-colors"
+                placeholder="••••••••"
+              />
+            </div>
+
+            <div className="pt-2 border-t border-border mt-2">
+              <p className="text-[10px] text-muted mb-4 italic">
+                {t("settings.mfaNote")}
+              </p>
+              
+              <div className="flex flex-col gap-4">
+                <div>
+                  <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5 ml-1">
+                    {t("settings.garminOAuth1")}
+                  </label>
+                  <textarea
+                    value={garminOAuth1}
+                    onChange={(e) => setGarminOAuth1(e.target.value)}
+                    className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-xs font-mono h-20 focus:outline-none focus:border-primary transition-colors"
+                    placeholder='{"oauth_token":"...","oauth_token_secret":"..."}'
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5 ml-1">
+                    {t("settings.garminOAuth2")}
+                  </label>
+                  <textarea
+                    value={garminOAuth2}
+                    onChange={(e) => setGarminOAuth2(e.target.value)}
+                    className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-xs font-mono h-20 focus:outline-none focus:border-primary transition-colors"
+                    placeholder='{"access_token":"...","refresh_token":"..."}'
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* AI Provider Section */}
         <div className="card">
           <div className="card-header mb-4">
             <Sparkles size={14} className="text-primary" />

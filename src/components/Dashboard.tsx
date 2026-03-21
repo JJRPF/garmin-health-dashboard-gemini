@@ -56,7 +56,19 @@ export default function Dashboard() {
     try {
       // Pass local date so the server doesn't use UTC (which can be a day ahead)
       const localDate = format(new Date(), 'yyyy-MM-dd');
-      const res = await fetch(`/api/health?date=${localDate}`);
+      
+      const username = localStorage.getItem('garminUsername') || '';
+      const password = localStorage.getItem('garminPassword') || '';
+      const oauth1 = localStorage.getItem('garminOAuth1') || '';
+      const oauth2 = localStorage.getItem('garminOAuth2') || '';
+
+      const headers: Record<string, string> = {};
+      if (username) headers['x-garmin-username'] = username;
+      if (password) headers['x-garmin-password'] = password;
+      if (oauth1) headers['x-garmin-oauth1'] = oauth1;
+      if (oauth2) headers['x-garmin-oauth2'] = oauth2;
+
+      const res = await fetch(`/api/health?date=${localDate}`, { headers });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json: DailyMetrics = await res.json();
       setData(json);

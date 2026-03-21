@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { format } from 'date-fns';
-import { fetchTrendData } from '@/lib/garmin';
+import { fetchTrendData, GarminCredentials } from '@/lib/garmin';
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -11,6 +11,24 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Invalid range. Use 30 or 90.' }, { status: 400 });
   }
 
-  const points = await fetchTrendData(range, date);
-  return NextResponse.json(points);
+  // Extract credentials from headers if provided
+  const username = req.headers.get('x-garmin-username') || undefined;
+  const password = req.headers.get('x-garmin-password') || undefined;
+  const oauth1 = req.headers.get('x-garmin-oauth1') || undefined;
+  const oauth2 = req.headers.get('x-garmin-oauth2') || undefined;
+
+  const creds: GarminCredentials | undefined = username || oauth1 ? {
+    username,
+    password,
+    oauth1,
+    oauth2,
+  } : undefined;
+
+  try {
+    const points = await fetchTrendData(range, date, creds);
+    return NextResponse.json(points);
+  } catch (err) {
+    console.error('[API] /trends error:', err);
+    return NextResponse.json({ error: 'Failed to fetch trend data' }, { status: 500 });
+  }
 }

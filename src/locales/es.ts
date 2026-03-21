@@ -402,6 +402,12 @@ const es = {
     aiProvider: 'Proveedor de IA',
     anthropicKey: 'Clave API de Anthropic',
     googleKey: 'Clave API de Google Gemini',
+    garminUsername: 'Email de Garmin',
+    garminPassword: 'Contraseña de Garmin',
+    garminOAuth1: 'Token OAuth1 de Garmin (JSON)',
+    garminOAuth2: 'Token OAuth2 de Garmin (JSON)',
+    garminSection: 'Garmin Connect',
+    mfaNote: 'Si tienes MFA activado, genera los tokens con el script y pégalos aquí.',
     save: 'Guardar ajustes',
     success: '¡Ajustes guardados!',
     placeholders: {

@@ -212,7 +212,16 @@ export default function TrendsPage() {
 
   useEffect(() => {
     const localDate = format(new Date(), 'yyyy-MM-dd');
-    fetch(`/api/health?date=${localDate}`).then(r => r.json()).then(setData);
+    const username = localStorage.getItem('garminUsername') || '';
+    const password = localStorage.getItem('garminPassword') || '';
+    const oauth1 = localStorage.getItem('garminOAuth1') || '';
+    const oauth2 = localStorage.getItem('garminOAuth2') || '';
+    const headers: Record<string, string> = {};
+    if (username) headers['x-garmin-username'] = username;
+    if (password) headers['x-garmin-password'] = password;
+    if (oauth1) headers['x-garmin-oauth1'] = oauth1;
+    if (oauth2) headers['x-garmin-oauth2'] = oauth2;
+    fetch(`/api/health?date=${localDate}`, { headers }).then(r => r.json()).then(setData);
   }, []);
 
   useEffect(() => {
@@ -220,7 +229,16 @@ export default function TrendsPage() {
     setTrendLoading(true);
     setTrendPoints(null);
     const localDate = format(new Date(), 'yyyy-MM-dd');
-    fetch(`/api/trends?range=${range}&date=${localDate}`)
+    const username = localStorage.getItem('garminUsername') || '';
+    const password = localStorage.getItem('garminPassword') || '';
+    const oauth1 = localStorage.getItem('garminOAuth1') || '';
+    const oauth2 = localStorage.getItem('garminOAuth2') || '';
+    const headers: Record<string, string> = {};
+    if (username) headers['x-garmin-username'] = username;
+    if (password) headers['x-garmin-password'] = password;
+    if (oauth1) headers['x-garmin-oauth1'] = oauth1;
+    if (oauth2) headers['x-garmin-oauth2'] = oauth2;
+    fetch(`/api/trends?range=${range}&date=${localDate}`, { headers })
       .then(r => r.json())
       .then((pts: TrendPoint[]) => { setTrendPoints(pts); setTrendLoading(false); })
       .catch(() => setTrendLoading(false));

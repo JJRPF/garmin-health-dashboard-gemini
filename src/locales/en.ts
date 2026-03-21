@@ -402,6 +402,12 @@ const en = {
     aiProvider: 'AI Provider',
     anthropicKey: 'Anthropic API Key',
     googleKey: 'Google Gemini API Key',
+    garminUsername: 'Garmin Email',
+    garminPassword: 'Garmin Password',
+    garminOAuth1: 'Garmin OAuth1 Token (JSON)',
+    garminOAuth2: 'Garmin OAuth2 Token (JSON)',
+    garminSection: 'Garmin Connect',
+    mfaNote: 'If you have MFA enabled, generate tokens with the script and paste them here.',
     save: 'Save Settings',
     success: 'Settings saved successfully!',
     placeholders: {

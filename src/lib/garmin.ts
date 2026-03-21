@@ -19,32 +19,44 @@ let garminClient: unknown = null;
 let clientTs = 0;
 const CLIENT_TTL = 55 * 60 * 1000; // 55 min
 
-async function getClient(): Promise<unknown> {
-  // Reuse warm singleton
-  if (garminClient && Date.now() - clientTs < CLIENT_TTL) return garminClient;
+export interface GarminCredentials {
+  username?: string;
+  password?: string;
+  oauth1?: string;
+  oauth2?: string;
+}
+
+async function getClient(creds?: GarminCredentials): Promise<unknown> {
+  const username = creds?.username || process.env.GARMIN_USERNAME;
+  const password = creds?.password || process.env.GARMIN_PASSWORD;
+  const rawOauth1 = creds?.oauth1 || process.env.GARMIN_OAUTH1;
+  const rawOauth2 = creds?.oauth2 || process.env.GARMIN_OAUTH2;
+
+  // Reuse warm singleton only if using same credentials (simplified: only if using env vars)
+  const isEnv = !creds || (creds.username === process.env.GARMIN_USERNAME && creds.password === process.env.GARMIN_PASSWORD);
+  if (isEnv && garminClient && Date.now() - clientTs < CLIENT_TTL) return garminClient;
 
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { GarminConnect } = require('garmin-connect');
+  const { GarminConnect } = require('@gooin/garmin-connect');
 
-  const hasCredentials = !!(process.env.GARMIN_USERNAME && process.env.GARMIN_PASSWORD);
+  const hasCredentials = !!(username && password);
   if (!hasCredentials) return null;
 
   const client = new GarminConnect({
-    username: process.env.GARMIN_USERNAME,
-    password: process.env.GARMIN_PASSWORD,
+    username: username,
+    password: password,
   });
 
   // ── Strategy 1: restore from pre-fetched OAuth tokens (no login needed) ──
-  const rawOauth1 = process.env.GARMIN_OAUTH1;
-  const rawOauth2 = process.env.GARMIN_OAUTH2;
-
   if (rawOauth1 && rawOauth2) {
     try {
-      const oauth1 = JSON.parse(rawOauth1);
-      const oauth2 = JSON.parse(rawOauth2);
+      const oauth1 = typeof rawOauth1 === 'string' ? JSON.parse(rawOauth1) : rawOauth1;
+      const oauth2 = typeof rawOauth2 === 'string' ? JSON.parse(rawOauth2) : rawOauth2;
       client.loadToken(oauth1, oauth2);
-      garminClient = client;
-      clientTs = Date.now();
+      if (isEnv) {
+        garminClient = client;
+        clientTs = Date.now();
+      }
       console.log('[Garmin] session restored from OAuth tokens');
       return client;
     } catch (e) {
@@ -55,13 +67,15 @@ async function getClient(): Promise<unknown> {
   // ── Strategy 2: full login (triggers MFA/rate-limit risk) ──────────────
   try {
     await client.login();
-    garminClient = client;
-    clientTs = Date.now();
+    if (isEnv) {
+      garminClient = client;
+      clientTs = Date.now();
+    }
     console.log('[Garmin] login successful');
     return client;
   } catch (err) {
     console.error('[Garmin] login failed:', err);
-    garminClient = null;
+    if (isEnv) garminClient = null;
     return null;
   }
 }
@@ -171,16 +185,20 @@ function parseActivities(raw: unknown[]): ActivityData[] {
 }
 
 // ─── Main fetch ───────────────────────────────────────────────────────────────
-export async function fetchDailyMetrics(dateStr?: string): Promise<DailyMetrics> {
+export async function fetchDailyMetrics(dateStr?: string, creds?: GarminCredentials): Promise<DailyMetrics> {
   const date = dateStr ?? format(new Date(), 'yyyy-MM-dd');
 
   const cached = cache.get(date);
-  if (cached && Date.now() - cached.ts < CACHE_TTL) return cached.data;
+  // Only use cache if no custom credentials are provided
+  if (!creds && cached && Date.now() - cached.ts < CACHE_TTL) return cached.data;
 
-  const hasCredentials = !!(process.env.GARMIN_USERNAME && process.env.GARMIN_PASSWORD)
-    || !!(process.env.GARMIN_OAUTH1 && process.env.GARMIN_OAUTH2);
+  const username = creds?.username || process.env.GARMIN_USERNAME;
+  const password = creds?.password || process.env.GARMIN_PASSWORD;
+  const oauth1 = creds?.oauth1 || process.env.GARMIN_OAUTH1;
+  const oauth2 = creds?.oauth2 || process.env.GARMIN_OAUTH2;
+  const hasCredentials = !!(username && password) || !!(oauth1 && oauth2);
 
-  const client = await getClient();
+  const client = await getClient(creds);
   if (!client) {
     return {
       ...mockData,
@@ -494,12 +512,13 @@ function generateMockTrendPoints(range: number, endDateStr: string): TrendPoint[
   });
 }
 
-export async function fetchTrendData(range: number, endDateStr: string): Promise<TrendPoint[]> {
+export async function fetchTrendData(range: number, endDateStr: string, creds?: GarminCredentials): Promise<TrendPoint[]> {
   const cacheKey = `${endDateStr}-${range}`;
   const cached = trendsCache.get(cacheKey);
-  if (cached && Date.now() - cached.ts < TRENDS_CACHE_TTL) return cached.data;
+  // Only use cache if no custom credentials are provided
+  if (!creds && cached && Date.now() - cached.ts < TRENDS_CACHE_TTL) return cached.data;
 
-  const client = await getClient();
+  const client = await getClient(creds);
   if (!client) {
     const mock = generateMockTrendPoints(range, endDateStr);
     trendsCache.set(cacheKey, { data: mock, ts: Date.now() });
