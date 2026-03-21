@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { format } from 'date-fns';
 import { es as dateFnsEs } from 'date-fns/locale';
 import { enUS } from 'date-fns/locale';
-import { RefreshCw, WifiOff, Gauge, User } from 'lucide-react';
+import { RefreshCw, WifiOff, Gauge, User, Settings } from 'lucide-react';
 import { useLang } from '@/lib/i18n';
 import Link from 'next/link';
 import type { DailyMetrics } from '@/lib/types';
@@ -151,6 +151,13 @@ export default function Dashboard() {
               >
                 <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
               </button>
+              {/* Settings link */}
+              <Link
+                href="/settings"
+                className="p-1.5 rounded-lg text-secondary hover:text-primary hover:bg-surface transition-colors"
+              >
+                <Settings size={15} />
+              </Link>
               {/* Profile link */}
               <Link
                 href="/profile"

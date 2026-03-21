@@ -49,8 +49,21 @@ export default function WeeklySummaryCard({ trend, profile }: Props) {
   const [summary, setSummary] = useState<string>('');
   const [status, setStatus] = useState<Status>('idle');
   const [expanded, setExpanded] = useState(false);
+  const [currentProvider, setCurrentProvider] = useState<string>('anthropic');
+
+  // Load provider from localStorage on mount
+  useEffect(() => {
+    const savedProvider = localStorage.getItem('aiProvider') || 'anthropic';
+    setCurrentProvider(savedProvider);
+  }, []);
 
   const generate = useCallback(async (force = false) => {
+    const aiProvider = localStorage.getItem('aiProvider') || 'anthropic';
+    const anthropicKey = localStorage.getItem('anthropicKey') || '';
+    const googleKey = localStorage.getItem('googleKey') || '';
+    
+    setCurrentProvider(aiProvider);
+
     if (!force) {
       const cached = getCached();
       if (cached) { setSummary(cached); setStatus('done'); return; }
@@ -64,6 +77,9 @@ export default function WeeklySummaryCard({ trend, profile }: Props) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          aiProvider,
+          anthropicKey,
+          googleKey,
           recovery:   trend.recovery,
           hrv:        trend.hrv,
           sleepHours: trend.sleepHours,
@@ -113,7 +129,7 @@ export default function WeeklySummaryCard({ trend, profile }: Props) {
         <div className="card-header mb-4">
           <Sparkles size={14} className="text-purple-400" />
           <span className="text-purple-400">{t('weeklySummary.title')}</span>
-          <span className="ml-auto text-[10px] text-muted">{t('weeklySummary.badge')}</span>
+          <span className="ml-auto text-[10px] text-muted uppercase">AI · {currentProvider}</span>
         </div>
         <div className="flex flex-col gap-2">
           {[100, 90, 75].map((w, i) => (
@@ -163,7 +179,7 @@ export default function WeeklySummaryCard({ trend, profile }: Props) {
         <Sparkles size={14} className="text-purple-400" />
         <span className="text-purple-400">{t('weeklySummary.title')}</span>
         <span className="ml-auto flex items-center gap-2">
-          <span className="text-[10px] text-muted">{t('weeklySummary.badge')}</span>
+          <span className="text-[10px] text-muted uppercase">AI · {currentProvider}</span>
           <button
             onClick={() => generate(true)}
             title={t('weeklySummary.regenerate')}

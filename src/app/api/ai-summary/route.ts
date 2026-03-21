@@ -1,8 +1,12 @@
 import { NextResponse } from 'next/server';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export const runtime = 'nodejs';
 
 interface WeeklyPayload {
+  aiProvider?: 'anthropic' | 'gemini';
+  anthropicKey?: string;
+  googleKey?: string;
   recovery:   number[];   // 0-100, 7 values
   hrv:        number[];   // ms
   sleepHours: number[];   // h
@@ -55,14 +59,6 @@ const GOAL_ES: Record<string, string> = {
 };
 
 export async function POST(req: Request) {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: 'ANTHROPIC_API_KEY not configured' },
-      { status: 503 },
-    );
-  }
-
   let body: WeeklyPayload;
   try {
     body = await req.json();
@@ -70,7 +66,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const { recovery, hrv, sleepHours, rhr, strain, profile } = body;
+  const { aiProvider = 'anthropic', anthropicKey, googleKey, recovery, hrv, sleepHours, rhr, strain, profile } = body;
+
+  const finalAnthropicKey = anthropicKey || process.env.ANTHROPIC_API_KEY;
+  const finalGoogleKey = googleKey || process.env.GOOGLE_API_KEY;
 
   const avgRec    = avg(recovery);
   const avgHrv    = avg(hrv);
@@ -101,31 +100,46 @@ Datos de la semana:
 ${lines.join('\n')}`;
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 400,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
+    if (aiProvider === 'gemini') {
+      if (!finalGoogleKey) {
+        return NextResponse.json({ error: 'Google API Key not configured' }, { status: 503 });
+      }
+      const genAI = new GoogleGenerativeAI(finalGoogleKey);
+      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro-latest' });
+      const result = await model.generateContent(prompt);
+      const text = result.response.text();
+      return NextResponse.json({ summary: text });
+    } else {
+      // Default to Anthropic
+      if (!finalAnthropicKey) {
+        return NextResponse.json({ error: 'Anthropic API Key not configured' }, { status: 503 });
+      }
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': finalAnthropicKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: 'claude-3-haiku-20240307',
+          max_tokens: 400,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
 
-    if (!response.ok) {
-      const err = await response.text();
-      console.error('[ai-summary] Anthropic error:', err);
-      return NextResponse.json({ error: 'Anthropic API error' }, { status: 502 });
+      if (!response.ok) {
+        const err = await response.text();
+        console.error('[ai-summary] Anthropic error:', err);
+        return NextResponse.json({ error: 'Anthropic API error' }, { status: 502 });
+      }
+
+      const data = await response.json();
+      const text: string = data.content?.[0]?.text ?? '';
+      return NextResponse.json({ summary: text });
     }
-
-    const data = await response.json();
-    const text: string = data.content?.[0]?.text ?? '';
-    return NextResponse.json({ summary: text });
   } catch (err) {
-    console.error('[ai-summary] fetch error:', err);
-    return NextResponse.json({ error: 'Network error' }, { status: 502 });
+    console.error(`[ai-summary] ${aiProvider} error:`, err);
+    return NextResponse.json({ error: 'Service error' }, { status: 502 });
   }
 }

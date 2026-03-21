@@ -5,6 +5,7 @@ const en = {
     strain: 'Strain',
     trends: 'Trends',
     profile: 'Profile',
+    settings: 'Settings',
   },
   common: {
     retry: 'Retry',
@@ -395,6 +396,18 @@ const en = {
     vo2maxNote: 'Available after the first data load from the Dashboard.',
     lastRHR: 'Last resting HR',
     observedMaxHR: 'Observed max HR',
+  },
+  settings: {
+    title: 'Settings',
+    aiProvider: 'AI Provider',
+    anthropicKey: 'Anthropic API Key',
+    googleKey: 'Google Gemini API Key',
+    save: 'Save Settings',
+    success: 'Settings saved successfully!',
+    placeholders: {
+      anthropic: 'sk-ant-...',
+      google: 'AIza...',
+    },
   },
   insights: {
     title: "Today's Insights",

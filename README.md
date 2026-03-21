@@ -4,7 +4,7 @@
 
 A personal health dashboard that connects to Garmin Connect and displays your daily metrics in a clean, mobile-first interface. Works with demo data if no credentials are configured.
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/git/external?repository-url=https%3A%2F%2Fgithub.com%2Fcggmx%2Fgarmin-health-dashboard&env=GARMIN_USERNAME,GARMIN_PASSWORD&envDescription=Garmin%20Connect%20credentials.%20Leave%20empty%20to%20use%20demo%20data.&project-name=garmin-health-dashboard)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/git/external?repository-url=https%3A%2F%2Fgithub.com%2FJJRPF%2Fgarmin-health-dashboard-gemini&env=GARMIN_USERNAME,GARMIN_PASSWORD,ANTHROPIC_API_KEY,GOOGLE_API_KEY&envDescription=Garmin%20Connect%20and%20AI%20credentials.&project-name=garmin-health-dashboard)
 
 > **Auto-updates:** deploying with this button connects your Vercel project directly to this repository. When a new version is released, Vercel redeploys your instance automatically — no action needed on your end.
 
@@ -31,10 +31,12 @@ A personal health dashboard that connects to Garmin Connect and displays your da
 | **Strain** | Daily strain (0–21 scale), ACWR load ratio, activities breakdown |
 | **Trends** | 7 / 14 / 30-day sparklines, weekly AI summary (optional), PDF export |
 | **Profile** | BMI, VO2max estimate, training zones, weight log |
+| **Settings** | Configure AI Provider (Anthropic/Gemini) and API keys directly in the app |
 
 **Key features**
 - 🌐 English / Spanish toggle (auto-detects browser language)
-- 🤖 AI weekly summary via Claude Haiku (optional — requires Anthropic API key)
+- 🤖 AI weekly summary via **Claude Haiku** or **Google Gemini** (optional — requires API keys)
+- ⚙️ **Settings UI**: Manage your AI provider and API keys directly from the browser
 - 📱 Installable PWA (iOS Safari & Android Chrome)
 - 🔔 Body Battery push notifications
 - 🎭 Full demo mode — works without Garmin credentials
@@ -48,7 +50,7 @@ A personal health dashboard that connects to Garmin Connect and displays your da
 - **Styling**: Tailwind CSS
 - **Charts**: Recharts
 - **Garmin**: `garmin-connect` npm package
-- **AI**: Anthropic Claude Haiku (optional)
+- **AI**: Anthropic Claude Haiku & Google Gemini (optional)
 
 ---
 
@@ -62,26 +64,21 @@ Click the **Deploy with Vercel** button above. You'll be prompted for:
 |----------|----------|-------------|
 | `GARMIN_USERNAME` | No | Your Garmin Connect email |
 | `GARMIN_PASSWORD` | No | Your Garmin Connect password |
-| `ANTHROPIC_API_KEY` | No | For AI weekly summary (Claude Haiku) |
+| `ANTHROPIC_API_KEY` | No | For AI summary (Claude Haiku) |
+| `GOOGLE_API_KEY` | No | For AI summary (Gemini 1.5 Pro) |
 
-Leave credentials empty to run in demo mode.
+Leave credentials empty to run in demo mode. You can also configure AI keys later via the **Settings** page in the app.
 
 **Keeping your instance up to date**
 
-Since your Vercel project points directly to this repository, new releases deploy to your instance automatically. If you deployed before v1.5.0 (i.e. you have your own forked GitHub repo), you can enable auto-sync by activating the included workflow:
-
-1. Open your forked repo on GitHub
-2. Go to **Actions** tab → enable workflows if prompted
-3. Find **"Sync fork with upstream"** → click **Run workflow**
-
-From that point on, every Monday your fork syncs automatically and Vercel redeploys.
+Since your Vercel project points directly to this repository, new releases deploy to your instance automatically.
 
 ### Option B — Manual deploy
 
 ```bash
 # 1. Clone
-git clone https://github.com/cggmx/garmin-health-dashboard.git
-cd garmin-health-dashboard
+git clone https://github.com/JJRPF/garmin-health-dashboard-gemini.git
+cd garmin-health-dashboard-gemini
 
 # 2. Install dependencies
 npm install
@@ -115,36 +112,16 @@ npm start
 GARMIN_USERNAME=your@email.com
 GARMIN_PASSWORD=yourpassword
 
-# Garmin OAuth tokens — use these if your account has MFA/2FA enabled (see below)
-GARMIN_OAUTH1={"oauth_token":"...","oauth_token_secret":"..."}
-GARMIN_OAUTH2={"access_token":"...","refresh_token":"...","expires_at":...}
-
-# AI weekly summary (optional — feature hidden if not set)
+# AI weekly summary (optional — feature hidden if no keys are provided)
+# You can also set these in the app's Settings page (stored in browser)
 ANTHROPIC_API_KEY=sk-ant-...
+GOOGLE_API_KEY=AIza...
 
 # Push notifications (optional — generated with npm run generate-vapid)
 NEXT_PUBLIC_VAPID_PUBLIC_KEY=...
 VAPID_PRIVATE_KEY=...
 VAPID_EMAIL=mailto:your@email.com
 ```
-
-Copy `.env.example` for the full template.
-
-### Accounts with MFA / 2-factor authentication enabled
-
-If Garmin sends you a verification code by email when you sign in, you need to generate OAuth tokens once using the included script:
-
-```bash
-node scripts/get-garmin-tokens.js
-```
-
-The script will:
-1. Ask for your Garmin email and password
-2. Detect that MFA is required and wait for you to enter the email code
-3. Automatically add `GARMIN_OAUTH1` and `GARMIN_OAUTH2` to your Vercel project
-4. Redeploy the app
-
-> **Token expiry**: tokens last ~90 days. Re-run the script when they expire. When `GARMIN_OAUTH1` / `GARMIN_OAUTH2` are set, `GARMIN_USERNAME` / `GARMIN_PASSWORD` are still needed for display purposes but not for authentication.
 
 ---
 
@@ -185,21 +162,11 @@ This project is free and open-source. If it's useful to you and you'd like to sa
 
 ---
 
-## Support
-
-This project is free and open-source. If it's useful to you and you'd like to support its development, you can buy me a coffee — completely optional, always appreciated. ☕
-
-[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-cggmx-FFDD00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/cggmx)
-
----
-
----
-
 # Español
 
 Dashboard personal de salud que se conecta a Garmin Connect y muestra tus métricas diarias en una interfaz móvil limpia. Funciona con datos demo si no hay credenciales configuradas.
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/git/external?repository-url=https%3A%2F%2Fgithub.com%2Fcggmx%2Fgarmin-health-dashboard&env=GARMIN_USERNAME,GARMIN_PASSWORD&envDescription=Credenciales%20de%20Garmin%20Connect.%20Deja%20vacío%20para%20usar%20datos%20demo.&project-name=garmin-health-dashboard)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/git/external?repository-url=https%3A%2F%2Fgithub.com%2FJJRPF%2Fgarmin-health-dashboard-gemini&env=GARMIN_USERNAME,GARMIN_PASSWORD,ANTHROPIC_API_KEY,GOOGLE_API_KEY&envDescription=Credenciales%20de%20Garmin%20y%20IA.&project-name=garmin-health-dashboard)
 
 > **Actualizaciones automáticas:** al desplegar con este botón, tu proyecto Vercel queda conectado directamente a este repositorio. Cuando se lanza una nueva versión, Vercel redespliega tu instancia automáticamente — sin que tengas que hacer nada.
 
@@ -210,10 +177,6 @@ Dashboard personal de salud que se conecta a Garmin Connect y muestra tus métri
 | Dashboard | Sueño & HRV | Esfuerzo & Estrés |
 |-----------|-------------|-------------------|
 | ![Dashboard](docs/screenshots/01-dashboard.jpeg) | ![Sueño & HRV](docs/screenshots/02-cards.jpeg) | ![Esfuerzo & Estrés](docs/screenshots/03-strain-stress.jpeg) |
-
-| Detalle de Sueño | Detalle de Esfuerzo |
-|------------------|---------------------|
-| ![Detalle de Sueño](docs/screenshots/04-sleep-detail.jpeg) | ![Detalle de Esfuerzo](docs/screenshots/05-strain-detail.jpeg) |
 
 ---
 
@@ -226,10 +189,12 @@ Dashboard personal de salud que se conecta a Garmin Connect y muestra tus métri
 | **Esfuerzo** | Esfuerzo diario (escala 0–21), ratio ACWR, desglose de actividades |
 | **Tendencias** | Sparklines 7 / 14 / 30 días, resumen IA semanal (opcional), exportación PDF |
 | **Perfil** | IMC, estimación VO2max, zonas de entrenamiento, registro de peso |
+| **Ajustes** | Configura el proveedor de IA (Anthropic/Gemini) y claves API en la app |
 
 **Características principales**
 - 🌐 Toggle inglés / español (detecta el idioma del navegador automáticamente)
-- 🤖 Resumen semanal IA con Claude Haiku (opcional — requiere API key de Anthropic)
+- 🤖 Resumen semanal IA con **Claude Haiku** o **Google Gemini** (opcional — requiere API keys)
+- ⚙️ **Panel de Ajustes**: Gestiona tu proveedor de IA y claves API directamente en el navegador
 - 📱 PWA instalable (iOS Safari y Android Chrome)
 - 🔔 Notificaciones push de Body Battery
 - 🎭 Modo demo completo — funciona sin credenciales de Garmin
@@ -243,7 +208,7 @@ Dashboard personal de salud que se conecta a Garmin Connect y muestra tus métri
 - **Estilos**: Tailwind CSS
 - **Gráficas**: Recharts
 - **Garmin**: paquete npm `garmin-connect`
-- **IA**: Anthropic Claude Haiku (opcional)
+- **IA**: Anthropic Claude Haiku y Google Gemini (opcional)
 
 ---
 
@@ -257,49 +222,10 @@ Haz clic en el botón **Deploy with Vercel** de arriba. Se te pedirán:
 |----------|-----------|-------------|
 | `GARMIN_USERNAME` | No | Tu correo de Garmin Connect |
 | `GARMIN_PASSWORD` | No | Tu contraseña de Garmin Connect |
-| `ANTHROPIC_API_KEY` | No | Para el resumen IA semanal (Claude Haiku) |
+| `ANTHROPIC_API_KEY` | No | Para el resumen IA (Claude Haiku) |
+| `GOOGLE_API_KEY` | No | Para el resumen IA (Gemini 1.5 Pro) |
 
-Deja las credenciales vacías para ejecutar en modo demo.
-
-**Mantener tu instancia actualizada**
-
-Al usar este botón, tu proyecto Vercel queda conectado directamente a este repositorio y las nuevas versiones se despliegan solas. Si desplegaste antes de v1.5.0 (es decir, tienes tu propio repositorio fork en GitHub), puedes activar la sincronización automática así:
-
-1. Abre tu fork en GitHub
-2. Ve a la pestaña **Actions** → activa los workflows si te lo pide
-3. Busca **"Sync fork with upstream"** → haz clic en **Run workflow**
-
-A partir de ahí, cada lunes tu fork se sincroniza solo y Vercel redespliega.
-
-### Opción B — Deploy manual
-
-```bash
-# 1. Clonar
-git clone https://github.com/cggmx/garmin-health-dashboard.git
-cd garmin-health-dashboard
-
-# 2. Instalar dependencias
-npm install
-
-# 3. Configurar variables de entorno
-cp .env.example .env.local
-# Edita .env.local con tus credenciales (todas opcionales)
-
-# 4. Ejecutar localmente
-npm run dev
-# → http://localhost:3000
-
-# 5. Desplegar en Vercel
-npx vercel deploy --prod
-```
-
-### Opción C — Self-hosting (Node.js)
-
-```bash
-npm run build
-npm start
-# Corre en el puerto 3000 por defecto
-```
+Deja las credenciales vacías para ejecutar en modo demo. También puedes configurar las claves de IA más tarde desde la página de **Ajustes** en la app.
 
 ---
 
@@ -310,59 +236,16 @@ npm start
 GARMIN_USERNAME=tu@correo.com
 GARMIN_PASSWORD=tucontraseña
 
-# Tokens OAuth de Garmin — úsalos si tu cuenta tiene MFA/2FA activado (ver abajo)
-GARMIN_OAUTH1={"oauth_token":"...","oauth_token_secret":"..."}
-GARMIN_OAUTH2={"access_token":"...","refresh_token":"...","expires_at":...}
-
-# Resumen IA semanal (opcional — la función se oculta si no está configurado)
+# Resumen IA semanal (opcional — la función se oculta si no hay claves)
+# También puedes configurar esto en la página de Ajustes de la app
 ANTHROPIC_API_KEY=sk-ant-...
+GOOGLE_API_KEY=AIza...
 
 # Notificaciones push (opcional — genera con npm run generate-vapid)
 NEXT_PUBLIC_VAPID_PUBLIC_KEY=...
 VAPID_PRIVATE_KEY=...
 VAPID_EMAIL=mailto:tu@correo.com
 ```
-
-Copia `.env.example` para la plantilla completa.
-
-### Cuentas con MFA / verificación en dos pasos activada
-
-Si Garmin te envía un código por correo al iniciar sesión, necesitas generar tokens OAuth una sola vez con el script incluido:
-
-```bash
-node scripts/get-garmin-tokens.js
-```
-
-El script:
-1. Pide tu correo y contraseña de Garmin
-2. Detecta que se requiere MFA y espera a que ingreses el código del correo
-3. Agrega automáticamente `GARMIN_OAUTH1` y `GARMIN_OAUTH2` a tu proyecto de Vercel
-4. Redespliega la app
-
-> **Expiración**: los tokens duran ~90 días. Vuelve a ejecutar el script cuando expiren. Con `GARMIN_OAUTH1` / `GARMIN_OAUTH2` configurados, `GARMIN_USERNAME` / `GARMIN_PASSWORD` siguen siendo necesarios para mostrar tu nombre, pero no para autenticarse.
-
----
-
-## Instalación móvil (PWA) · APK / Play Store
-
-**¿Hay una APK o versión en la Play Store?**
-Por el momento no. La app es self-hosted por diseño — tus credenciales de Garmin nunca salen de tu propio servidor. Una versión en la Play Store requeriría un servidor central que almacene las credenciales de todos los usuarios, lo que implica responsabilidades de privacidad y costos incompatibles con la naturaleza open-source y gratuita de este proyecto.
-
-**La buena noticia:** la app se puede instalar como PWA directamente desde el navegador — sin pasar por ninguna tienda, con experiencia en pantalla completa, ícono en el home y notificaciones push incluidas.
-
-| Plataforma | Pasos |
-|------------|-------|
-| **iPhone / iPad** | Abre en Safari → toca Compartir → "Agregar a pantalla de inicio" |
-| **Android** | Abre en Chrome → menú (⋮) → "Agregar a pantalla de inicio" o "Instalar app" |
-
----
-
-## Privacidad
-
-- Las credenciales de Garmin se almacenan **solo en tu entorno de servidor** (variables de entorno de Vercel o `.env.local`)
-- Los datos de salud se obtienen del lado del servidor y nunca se persisten
-- El perfil, registro de peso y preferencias se almacenan **solo en el localStorage de tu navegador**
-- Sin analíticas, sin rastreo, sin recolección de datos de terceros
 
 ---
 
@@ -377,11 +260,3 @@ MIT © 2025 — libre de usar, modificar y distribuir. Ver [LICENSE](LICENSE).
 Esta app es gratuita y de código abierto. Si te es útil y quieres agradecerlo, puedes invitarme un café ☕
 
 [![Invítame un café](https://img.shields.io/badge/Invítame%20un%20café-apoya%20el%20proyecto-yellow?logo=buy-me-a-coffee)](https://buymeacoffee.com/cggmx)
-
----
-
-## Apoya el proyecto
-
-Este proyecto es gratuito y de código abierto. Si te resulta útil y quieres apoyar su desarrollo, puedes invitarme un café — completamente opcional, siempre agradecido. ☕
-
-[![Invítame un café](https://img.shields.io/badge/Invítame%20un%20café-cggmx-FFDD00?style=flat&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/cggmx)

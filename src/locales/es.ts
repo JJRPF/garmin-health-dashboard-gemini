@@ -5,6 +5,7 @@ const es = {
     strain: 'Esfuerzo',
     trends: 'Tendencias',
     profile: 'Perfil',
+    settings: 'Ajustes',
   },
   common: {
     retry: 'Reintentar',
@@ -394,9 +395,21 @@ const es = {
     vo2maxSection: 'VO2max y zonas',
     vo2maxNote: 'Disponibles tras la primera carga de datos desde el Dashboard.',
     lastRHR: 'Última FC reposo',
-    observedMaxHR: 'FC máx observada',
-  },
-  insights: {
+    observedMaxHR: 'FC Máx observada',
+    },
+    settings: {
+    title: 'Ajustes',
+    aiProvider: 'Proveedor de IA',
+    anthropicKey: 'Clave API de Anthropic',
+    googleKey: 'Clave API de Google Gemini',
+    save: 'Guardar ajustes',
+    success: '¡Ajustes guardados!',
+    placeholders: {
+      anthropic: 'sk-ant-...',
+      google: 'AIza...',
+    },
+    },
+    insights: {
     title: 'Insights del día',
     recommendations: '{count} recomendaciones',
     good: 'Buena',
