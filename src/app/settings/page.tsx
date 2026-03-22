@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useLang } from "@/lib/i18n";
-import { ChevronLeft, Save, Sparkles, Brain, User, Activity, RefreshCw, ShieldCheck, AlertTriangle, ExternalLink, Terminal } from "lucide-react";
+import { ChevronLeft, Save, Sparkles, Brain, User, Activity, RefreshCw, ShieldCheck, AlertTriangle, ExternalLink, Terminal, Globe, Key } from "lucide-react";
 import Link from "next/link";
 import BottomNav from "@/components/BottomNav";
 
@@ -25,8 +25,9 @@ export default function SettingsPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [mfaCode, setMfaCode] = useState("");
   const [authState, setAuthState] = useState<any>(null);
+  const [ticketUrl, setTicketUrl] = useState("");
 
-  // Hydration safety: read from localStorage on mount
+  // Hydration safety
   useEffect(() => {
     const savedProvider = localStorage.getItem("aiProvider") as "anthropic" | "gemini" | null;
     const savedAnthropicKey = localStorage.getItem("anthropicKey") || "";
@@ -54,78 +55,59 @@ export default function SettingsPage() {
     localStorage.setItem("garminPassword", garminPassword);
     localStorage.setItem("garminOAuth1", garminOAuth1);
     localStorage.setItem("garminOAuth2", garminOAuth2);
-    
     setMessage(t("settings.success"));
     setTimeout(() => setMessage(""), 3000);
   };
 
-  const startGarminLogin = async () => {
-    if (!garminUsername || !garminPassword) {
-      setMessage("Enter email and password first");
-      return;
-    }
-
+  const exchangeTicket = async () => {
+    if (!ticketUrl) return;
     setIsProcessing(true);
-    setAuthStatus("idle");
     setMessage("");
-    
+
     try {
+      // Extract ST-XXX from the URL
+      const match = ticketUrl.match(/ticket=(ST-[A-Za-z0-9-]+-cas)/);
+      const ticket = match ? match[1] : ticketUrl;
+
       const res = await fetch("/api/auth/garmin", {
         method: "POST",
-        body: JSON.stringify({
-          action: "login",
-          username: garminUsername,
-          password: garminPassword,
-        }),
+        body: JSON.stringify({ action: "exchange", ticket }),
       });
 
       const data = await res.json();
-
-      if (data.status === "mfa_required") {
-        setAuthStatus("mfa_required");
-        setAuthState(data.state);
-        setMessage("Verification code sent to your email");
-      } else if (data.status === "success") {
+      if (data.status === "success") {
         saveTokens(data.tokens);
+        setTicketUrl("");
       } else {
-        setAuthStatus("error");
-        setMessage(data.error || "Login failed");
+        setMessage(data.error || "Exchange failed");
       }
     } catch (e) {
-      setAuthStatus("error");
-      setMessage("Connection error (likely blocked by Garmin)");
+      setMessage("Connection error during exchange");
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const verifyMfaCode = async () => {
-    if (!mfaCode) return;
-
+  const startGarminLogin = async () => {
     setIsProcessing(true);
+    setAuthStatus("idle");
+    setMessage("");
     try {
       const res = await fetch("/api/auth/garmin", {
         method: "POST",
-        body: JSON.stringify({
-          action: "verify",
-          username: garminUsername,
-          password: garminPassword,
-          mfaCode,
-          state: authState,
-        }),
+        body: JSON.stringify({ action: "login", username: garminUsername, password: garminPassword }),
       });
-
       const data = await res.json();
-
-      if (data.status === "success") {
+      if (data.status === "mfa_required") {
+        setAuthStatus("mfa_required");
+        setAuthState(data.state);
+      } else if (data.status === "success") {
         saveTokens(data.tokens);
       } else {
-        setAuthStatus("mfa_required");
-        setMessage(data.error || "Invalid code");
+        setMessage(data.error || "Login failed");
       }
     } catch (e) {
-      setAuthStatus("error");
-      setMessage("Verification failed");
+      setMessage("Blocked by Garmin (403). Use the Mobile Bypass below.");
     } finally {
       setIsProcessing(false);
     }
@@ -138,19 +120,10 @@ export default function SettingsPage() {
     setGarminOAuth2(o2);
     localStorage.setItem("garminOAuth1", o1);
     localStorage.setItem("garminOAuth2", o2);
-    setAuthStatus("success");
     setMessage("✅ Connected successfully!");
-    setMfaCode("");
-    setAuthState(null);
   };
 
-  if (!isHydrated) {
-    return (
-      <div className="min-h-screen bg-bg flex items-center justify-center">
-        <div className="animate-pulse text-muted">{t("common.loading")}</div>
-      </div>
-    );
-  }
+  if (!isHydrated) return null;
 
   return (
     <div className="min-h-screen bg-bg pb-28 text-white">
@@ -165,248 +138,122 @@ export default function SettingsPage() {
 
       <main className="max-w-md mx-auto px-4 pt-6 flex flex-col gap-6">
         
-        {/* Garmin Section */}
+        {/* Bypass Section */}
         <section className="flex flex-col gap-3">
-          <h2 className="text-xs font-bold text-secondary uppercase tracking-widest px-1">Garmin Authentication</h2>
-          <div className="card">
-            <div className="card-header mb-4">
-              <User size={14} className="text-primary" />
-              <span>{t("settings.garminSection")}</span>
-            </div>
-
-            <div className="flex flex-col gap-4">
-              <div>
-                <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5 ml-1">
-                  {t("settings.garminUsername")}
-                </label>
-                <input
-                  type="email"
-                  value={garminUsername}
-                  onChange={(e) => setGarminUsername(e.target.value)}
-                  className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary transition-colors text-white"
-                  placeholder="your@email.com"
-                  disabled={isProcessing}
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5 ml-1">
-                  {t("settings.garminPassword")}
-                </label>
-                <input
-                  type="password"
-                  value={garminPassword}
-                  onChange={(e) => setGarminPassword(e.target.value)}
-                  className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary transition-colors text-white"
-                  placeholder="••••••••"
-                  disabled={isProcessing}
-                />
-              </div>
-
-              {authStatus === "mfa_required" ? (
-                <div className="bg-primary/5 border border-primary/20 rounded-2xl p-4 animate-fade-up">
-                  <div className="flex items-center gap-2 text-primary mb-3">
-                    <ShieldCheck size={16} />
-                    <span className="text-xs font-bold uppercase tracking-wider">MFA Required</span>
-                  </div>
-                  <input
-                    type="text"
-                    value={mfaCode}
-                    onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                    className="w-full bg-bg border border-primary/30 rounded-xl px-4 py-3 text-center text-lg font-black tracking-[0.5em] focus:outline-none focus:border-primary transition-colors text-white mb-3"
-                    placeholder="000000"
-                    autoFocus
-                  />
-                  <button
-                    onClick={verifyMfaCode}
-                    disabled={isProcessing || mfaCode.length < 6}
-                    className="w-full py-3 px-4 rounded-xl bg-primary text-white text-xs font-bold flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-50"
-                  >
-                    {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : null}
-                    Verify & Connect
-                  </button>
-                  <button 
-                    onClick={() => setAuthStatus("idle")}
-                    className="w-full mt-2 py-2 text-[10px] text-muted hover:text-secondary"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={startGarminLogin}
-                  disabled={isProcessing || !garminUsername || !garminPassword}
-                  className="mt-2 py-3 px-4 rounded-xl bg-primary/10 border border-primary/30 text-xs font-bold text-primary hover:bg-primary/20 transition-all flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-50"
-                >
-                  {isProcessing ? <RefreshCw size={14} className="animate-spin" /> : <ShieldCheck size={14} />}
-                  <span>{isProcessing ? "Connecting..." : "Sign in to Garmin"}</span>
-                </button>
-              )}
-
-              <div className="pt-4 border-t border-border mt-2">
-                <div className="flex items-center justify-between mb-4">
-                  <label className="text-[10px] font-bold text-muted uppercase tracking-wider ml-1">
-                    Advanced / Manual Tokens
-                  </label>
-                  <button 
-                    onClick={() => setAuthStatus(authStatus === "idle" ? "success" : "idle")} 
-                    className="text-[9px] text-muted hover:text-secondary underline"
-                  >
-                    {garminOAuth1 ? "Show Tokens" : "Paste Manually"}
-                  </button>
-                </div>
-                
-                {(garminOAuth1 || authStatus === "success") && (
-                  <div className="flex flex-col gap-4 animate-fade-in">
-                    <div>
-                      <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5 ml-1">
-                        {t("settings.garminOAuth1")}
-                      </label>
-                      <textarea
-                        value={garminOAuth1}
-                        onChange={(e) => setGarminOAuth1(e.target.value)}
-                        className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-[10px] font-mono h-20 focus:outline-none focus:border-primary transition-colors text-white resize-none"
-                        placeholder='{"oauth_token":"...","oauth_token_secret":"..."}'
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5 ml-1">
-                        {t("settings.garminOAuth2")}
-                      </label>
-                      <textarea
-                        value={garminOAuth2}
-                        onChange={(e) => setGarminOAuth2(e.target.value)}
-                        className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-[10px] font-mono h-20 focus:outline-none focus:border-primary transition-colors text-white resize-none"
-                        placeholder='{"access_token":"...","refresh_token":"..."}'
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* Troubleshooting Section */}
-        <section className="flex flex-col gap-3">
-          <h2 className="text-xs font-bold text-secondary uppercase tracking-widest px-1 flex items-center gap-2">
-            <AlertTriangle size={12} className="text-yellow-500" />
-            Troubleshooting
+          <h2 className="text-xs font-bold text-blue-500 uppercase tracking-widest px-1 flex items-center gap-2">
+            <Globe size={12} />
+            Mobile Login (Bypass 403)
           </h2>
-          <div className="card bg-yellow-500/5 border-yellow-500/20">
-            <div className="flex flex-col gap-4 text-xs leading-relaxed text-secondary">
-              <p className="font-semibold text-yellow-500/90">
-                Getting a 403 Forbidden error?
-              </p>
-              <p>
-                Garmin often blocks Vercel servers. If the "Sign In" button above fails, use the local terminal method:
+          <div className="card border-blue-500/30 bg-blue-500/5">
+            <div className="flex flex-col gap-4 text-xs">
+              <p className="text-secondary leading-relaxed">
+                If the standard "Sign In" fails, use this method to log in via your phone's IP address.
               </p>
               
-              <div className="bg-black/40 rounded-xl p-3 border border-white/5 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Terminal size={14} className="text-muted" />
-                  <code className="text-[10px] text-primary">node scripts/get-garmin-tokens.js</code>
-                </div>
-                <button 
-                  onClick={() => navigator.clipboard.writeText("node scripts/get-garmin-tokens.js")}
-                  className="text-[10px] hover:text-white underline"
-                >
-                  Copy
-                </button>
-              </div>
+              <a 
+                href="https://sso.garmin.com/sso/signin?service=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F&webhost=https%3A%2F%2Fconnect.garmin.com&source=https%3A%2F%2Fconnect.garmin.com%2Fsignin&gauthHost=https%3A%2F%2Fsso.garmin.com%2Fsso&locale=en_US&id=gauth-widget&clientId=GarminConnect&initialFocus=true&embedWidget=false&generateExtraServiceTicket=true"
+                target="_blank"
+                className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-center font-bold rounded-xl transition-all flex items-center justify-center gap-2"
+              >
+                1. Log in on Garmin.com
+                <ExternalLink size={14} />
+              </a>
 
               <div className="space-y-2">
-                <p className="font-bold text-[10px] uppercase tracking-wider text-muted">Steps:</p>
-                <ol className="list-decimal list-inside space-y-1 ml-1">
-                  <li>Run the command above in your computer's terminal.</li>
-                  <li>Follow the prompts to log in and enter your MFA code.</li>
-                  <li>Copy the resulting JSON strings and paste them into the <b>Manual Tokens</b> fields above.</li>
-                </ol>
+                <p className="text-[10px] uppercase font-bold text-muted ml-1">2. Paste result URL or Ticket</p>
+                <input
+                  type="text"
+                  value={ticketUrl}
+                  onChange={(e) => setTicketUrl(e.target.value)}
+                  placeholder="https://connect.garmin.com/modern/?ticket=ST-..."
+                  className="w-full bg-black/50 border border-blue-500/30 rounded-xl px-4 py-3 text-[10px] focus:outline-none focus:border-blue-500 text-white"
+                />
+                <button
+                  onClick={exchangeTicket}
+                  disabled={!ticketUrl || isProcessing}
+                  className="w-full py-3 bg-white text-black font-bold rounded-xl text-xs disabled:opacity-50"
+                >
+                  {isProcessing ? "Processing..." : "3. Extract & Save Tokens"}
+                </button>
               </div>
             </div>
           </div>
         </section>
 
-        {/* AI Provider Section */}
+        {/* Garmin Standard Section */}
         <section className="flex flex-col gap-3">
-          <h2 className="text-xs font-bold text-secondary uppercase tracking-widest px-1">AI Intelligence</h2>
+          <h2 className="text-xs font-bold text-secondary uppercase tracking-widest px-1">Standard Sign In</h2>
           <div className="card">
-            <div className="card-header mb-4">
-              <Sparkles size={14} className="text-primary" />
-              <span>{t("settings.aiProvider")}</span>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-2 mb-6">
-              <button
-                onClick={() => setAiProvider("anthropic")}
-                className={`flex items-center justify-center gap-2 py-3 rounded-xl border transition-all ${
-                  aiProvider === "anthropic" 
-                    ? "bg-primary/10 border-primary text-primary shadow-[0_0_15px_rgba(59,130,246,0.1)]" 
-                    : "bg-surface border-border text-muted hover:text-secondary"
-                }`}
-              >
-                <Brain size={16} />
-                <span className="text-xs font-semibold">Anthropic</span>
-              </button>
-              <button
-                onClick={() => setAiProvider("gemini")}
-                className={`flex items-center justify-center gap-2 py-3 rounded-xl border transition-all ${
-                  aiProvider === "gemini" 
-                    ? "bg-primary/10 border-primary text-primary shadow-[0_0_15px_rgba(59,130,246,0.1)]" 
-                    : "bg-surface border-border text-muted hover:text-secondary"
-                }`}
-              >
-                <Sparkles size={16} />
-                <span className="text-xs font-semibold">Gemini</span>
-              </button>
-            </div>
-
             <div className="flex flex-col gap-4">
-              <div>
-                <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5 ml-1">
-                  {t("settings.anthropicKey")}
-                </label>
-                <input
-                  type="password"
-                  value={anthropicKey}
-                  onChange={(e) => setAnthropicKey(e.target.value)}
-                  placeholder={t("settings.placeholders.anthropic")}
-                  className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary transition-colors text-white"
-                />
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold text-muted uppercase tracking-wider mb-1.5 ml-1">
-                  {t("settings.googleKey")}
-                </label>
-                <input
-                  type="password"
-                  value={googleKey}
-                  onChange={(e) => setGoogleKey(e.target.value)}
-                  placeholder={t("settings.placeholders.google")}
-                  className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-primary transition-colors text-white"
-                />
-              </div>
+              <input
+                type="email"
+                value={garminUsername}
+                onChange={(e) => setGarminUsername(e.target.value)}
+                className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-sm text-white"
+                placeholder="Garmin Email"
+              />
+              <input
+                type="password"
+                value={garminPassword}
+                onChange={(e) => setGarminPassword(e.target.value)}
+                className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-sm text-white"
+                placeholder="Garmin Password"
+              />
+              <button
+                onClick={startGarminLogin}
+                disabled={isProcessing || !garminUsername}
+                className="py-3 bg-surface border border-border rounded-xl text-xs font-bold text-secondary hover:text-primary transition-all"
+              >
+                Sign in to Garmin
+              </button>
             </div>
           </div>
         </section>
 
-        <button
-          onClick={handleSave}
-          className="w-full bg-primary text-white font-bold py-4 rounded-2xl flex items-center justify-center gap-2 shadow-lg shadow-primary/20 active:scale-[0.98] transition-all"
-        >
-          <Save size={18} />
-          <span>{t("settings.save")}</span>
+        {/* Tokens Section */}
+        <section className="flex flex-col gap-3">
+          <h2 className="text-xs font-bold text-secondary uppercase tracking-widest px-1">Active Tokens</h2>
+          <div className="card">
+            <div className="flex flex-col gap-4">
+              <textarea
+                value={garminOAuth1}
+                readOnly
+                className="w-full bg-black/30 border border-border rounded-xl px-4 py-3 text-[9px] font-mono h-16 resize-none opacity-60"
+                placeholder="GARMIN_OAUTH1 (Auto-filled)"
+              />
+              <textarea
+                value={garminOAuth2}
+                readOnly
+                className="w-full bg-black/30 border border-border rounded-xl px-4 py-3 text-[9px] font-mono h-16 resize-none opacity-60"
+                placeholder="GARMIN_OAUTH2 (Auto-filled)"
+              />
+            </div>
+          </div>
+        </section>
+
+        {/* AI Section */}
+        <section className="flex flex-col gap-3">
+          <h2 className="text-xs font-bold text-secondary uppercase tracking-widest px-1">AI Provider</h2>
+          <div className="card">
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              <button onClick={() => setAiProvider("anthropic")} className={`py-3 rounded-xl border text-xs font-bold ${aiProvider === "anthropic" ? "border-primary text-primary bg-primary/10" : "border-border text-muted"}`}>Anthropic</button>
+              <button onClick={() => setAiProvider("gemini")} className={`py-3 rounded-xl border text-xs font-bold ${aiProvider === "gemini" ? "border-primary text-primary bg-primary/10" : "border-border text-muted"}`}>Gemini</button>
+            </div>
+            <input type="password" value={anthropicKey} onChange={e => setAnthropicKey(e.target.value)} className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-xs mb-3" placeholder="Anthropic Key" />
+            <input type="password" value={googleKey} onChange={e => setGoogleKey(e.target.value)} className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-xs" placeholder="Google Key" />
+          </div>
+        </section>
+
+        <button onClick={handleSave} className="w-full bg-primary text-white font-bold py-4 rounded-2xl shadow-lg shadow-primary/20 active:scale-95 transition-all flex items-center justify-center gap-2">
+          <Save size={18} /> Save Settings
         </button>
 
         {message && (
-          <div className="fixed bottom-24 left-1/2 -translate-x-1/2 bg-surface border border-border text-white text-[10px] font-bold px-6 py-3 rounded-full shadow-2xl animate-fade-up z-50 whitespace-nowrap">
+          <div className="fixed bottom-24 left-1/2 -translate-x-1/2 bg-surface border border-border text-white text-[10px] font-bold px-6 py-3 rounded-full shadow-2xl animate-fade-up z-50">
             {message}
           </div>
         )}
       </main>
-
       <BottomNav />
     </div>
   );
