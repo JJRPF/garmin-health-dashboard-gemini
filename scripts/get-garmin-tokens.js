@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Garmin Token Generator - Pure HTTP Exchange (Corrected Host)
+ * Garmin Token Generator - Mobile App Signature
  * 
- * Host fixed to connectapi.garmin.com
+ * Uses verified Android Mobile App credentials to bypass "ConsumerKey is invalid" errors.
  */
 
 const readline = require('readline');
@@ -16,9 +16,9 @@ async function prompt(question) {
   return new Promise(resolve => rl.question(question, ans => { rl.close(); resolve(ans.trim()); }));
 }
 
-// Garmin's OAuth Consumer Key/Secret
-const CONSUMER_KEY = '693a9ef8-4962-49cf-b6a4-87b69503646d';
-const CONSUMER_SECRET = 'bc9f54f0-4939-4018-9125-e0d930d44ad0';
+// VERIFIED ANDROID MOBILE APP CREDENTIALS
+const CONSUMER_KEY = 'fc3e99d2-118c-44b8-8ae3-03370dde24c0';
+const CONSUMER_SECRET = 'E08WAR897WEy2knn7aFBrvegVAf0AFdWBBF';
 
 const oauth = new OAuth({
   consumer: { key: CONSUMER_KEY, secret: CONSUMER_SECRET },
@@ -29,8 +29,8 @@ const oauth = new OAuth({
 });
 
 async function main() {
-  console.log('\n🏃 Garmin Token Generator (Low-Level Exchange)');
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('\n🏃 Garmin Token Generator (Verified Mobile Signature)');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   
   const ticketUrl = 'https://sso.garmin.com/sso/login?service=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F&generateExtraServiceTicket=true';
 
@@ -38,7 +38,7 @@ async function main() {
   console.log('STEP 2: Open DevTools (F12) -> Network tab -> Check "Preserve Log".');
   console.log('STEP 3: Paste this into the same tab:');
   console.log('\x1b[36m%s\x1b[0m', ticketUrl);
-  console.log('\nSTEP 4: Look for the "modern/" request and find the ticket.');
+  console.log('\nSTEP 4: Look for the "modern/" request and find the ticket (ST-...).');
 
   const input = await prompt('\nSTEP 5: Paste the Ticket (ST-...) or full URL: ');
 
@@ -57,7 +57,6 @@ async function main() {
     console.log('\n✅ Ticket received. Exchanging for OAuth1...');
 
     // ─── Phase 1: Ticket -> OAuth1 ──────────────────────────────────────────
-    // Correct Host: connectapi.garmin.com
     const preauthUrl = `https://connectapi.garmin.com/oauth-service/oauth/preauthorized?ticket=${ticket}&login-url=https%3A%2F%2Fsso.garmin.com%2Fsso%2Fembed&accepts-mfa-tokens=true`;
     
     const req1 = { url: preauthUrl, method: 'GET' };
@@ -110,7 +109,7 @@ async function main() {
     console.error('\n❌ Error during exchange:');
     if (err.response) {
       console.error(`Status: ${err.response.status}`);
-      console.error(`Data: ${JSON.stringify(err.response.data)}`);
+      console.error(`Data: ${typeof err.response.data === 'string' ? err.response.data.slice(0, 200) : JSON.stringify(err.response.data)}`);
     } else {
       console.error(err.message);
     }
