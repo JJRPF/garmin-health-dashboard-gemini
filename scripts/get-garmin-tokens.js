@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
- * Garmin Token Generator - Mobile App Signature
+ * Garmin Token Generator - Multi-Key Brute Force Exchange
  * 
- * Uses verified Android Mobile App credentials to bypass "ConsumerKey is invalid" errors.
+ * Automatically tries multiple consumer keys to find the one that matches 
+ * your account's region/type.
  */
 
 const readline = require('readline');
@@ -16,21 +17,26 @@ async function prompt(question) {
   return new Promise(resolve => rl.question(question, ans => { rl.close(); resolve(ans.trim()); }));
 }
 
-// VERIFIED ANDROID MOBILE APP CREDENTIALS
-const CONSUMER_KEY = 'fc3e99d2-118c-44b8-8ae3-03370dde24c0';
-const CONSUMER_SECRET = 'E08WAR897WEy2knn7aFBrvegVAf0AFdWBBF';
+// Known Consumer Keys extracted from various Garmin apps
+const KNOWN_KEYS = [
+  { name: 'Android GCM (Primary)', key: 'fc3e99d2-118c-44b8-8ae3-03370dde24c0', secret: 'E08WAR897WEy2knn7aFBrvegVAf0AFdWBBF' },
+  { name: 'Garmin Connect (Web)', key: '693a9ef8-4962-49cf-b6a4-87b69503646d', secret: 'bc9f54f0-4939-4018-9125-e0d930d44ad0' },
+  { name: 'iOS Connect (Legacy)', key: 'ad39402c-5a06-4e71-8267-d4f3d0cf3f2d', secret: 'A6956944BB4D4070AA2B7CFE3CC5697EE' }
+];
 
-const oauth = new OAuth({
-  consumer: { key: CONSUMER_KEY, secret: CONSUMER_SECRET },
-  signature_method: 'HMAC-SHA1',
-  hash_function(base_string, key) {
-    return crypto.createHmac('sha1', key).update(base_string).digest('base64');
-  },
-});
+function getOAuth(consumer) {
+  return new OAuth({
+    consumer: { key: consumer.key, secret: consumer.secret },
+    signature_method: 'HMAC-SHA1',
+    hash_function(base_string, key) {
+      return crypto.createHmac('sha1', key).update(base_string).digest('base64');
+    },
+  });
+}
 
 async function main() {
-  console.log('\n🏃 Garmin Token Generator (Verified Mobile Signature)');
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('\n🏃 Garmin Token Generator (Multi-Key Exchange)');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   
   const ticketUrl = 'https://sso.garmin.com/sso/login?service=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F&generateExtraServiceTicket=true';
 
@@ -42,42 +48,64 @@ async function main() {
 
   const input = await prompt('\nSTEP 5: Paste the Ticket (ST-...) or full URL: ');
 
-  try {
-    let ticket = input;
-    if (input.includes('ticket=')) {
-      const match = input.match(/ticket=(ST-[A-Za-z0-9-]+-cas)/);
-      ticket = match ? match[1] : null;
-    }
+  let ticket = input;
+  if (input.includes('ticket=')) {
+    const match = input.match(/ticket=(ST-[A-Za-z0-9-]+-cas)/);
+    ticket = match ? match[1] : null;
+  }
 
-    if (!ticket || !ticket.startsWith('ST-')) {
-      console.error('\n❌ Error: Invalid ticket format.');
-      process.exit(1);
-    }
+  if (!ticket || !ticket.startsWith('ST-')) {
+    console.error('\n❌ Error: Invalid ticket format.');
+    process.exit(1);
+  }
 
-    console.log('\n✅ Ticket received. Exchanging for OAuth1...');
+  console.log('\n✅ Ticket received. Testing consumer keys...');
 
-    // ─── Phase 1: Ticket -> OAuth1 ──────────────────────────────────────────
-    const preauthUrl = `https://connectapi.garmin.com/oauth-service/oauth/preauthorized?ticket=${ticket}&login-url=https%3A%2F%2Fsso.garmin.com%2Fsso%2Fembed&accepts-mfa-tokens=true`;
+  let oauth1 = null;
+  let workingConsumer = null;
+
+  for (const consumer of KNOWN_KEYS) {
+    process.stdout.write(`  Trying ${consumer.name}... `);
     
-    const req1 = { url: preauthUrl, method: 'GET' };
-    const authHeader = oauth.toHeader(oauth.authorize(req1));
+    try {
+      const oauth = getOAuth(consumer);
+      const url = `https://connectapi.garmin.com/oauth-service/oauth/preauthorized?ticket=${ticket}&login-url=https%3A%2F%2Fsso.garmin.com%2Fsso%2Fembed&accepts-mfa-tokens=true`;
+      
+      const req = { url, method: 'GET' };
+      const authHeader = oauth.toHeader(oauth.authorize(req));
 
-    const res1 = await axios.get(preauthUrl, {
-      headers: {
-        ...authHeader,
-        'User-Agent': 'com.garmin.android.apps.connectmobile',
+      const res = await axios.get(url, {
+        headers: {
+          ...authHeader,
+          'User-Agent': 'com.garmin.android.apps.connectmobile',
+        }
+      });
+
+      oauth1 = qs.parse(res.data);
+      workingConsumer = consumer;
+      console.log('\x1b[32mSUCCESS!\x1b[0m');
+      break;
+    } catch (err) {
+      if (err.response?.status === 401) {
+        console.log('\x1b[31mRejected\x1b[0m');
+      } else {
+        console.log(`\x1b[31mError (${err.response?.status || err.message})\x1b[0m`);
       }
-    });
-
-    const oauth1 = qs.parse(res1.data);
-    if (!oauth1.oauth_token || !oauth1.oauth_token_secret) {
-      throw new Error('Failed to parse OAuth1 tokens from response.');
     }
+  }
 
-    console.log('✅ OAuth1 obtained. Exchanging for OAuth2...');
+  if (!oauth1 || !workingConsumer) {
+    console.error('\n❌ All exchange attempts failed.');
+    console.log('This usually means the ticket was already used, expired, or Garmin is rate-limiting you.');
+    console.log('Wait 10 minutes, get a NEW ticket, and try again.');
+    process.exit(1);
+  }
 
-    // ─── Phase 2: OAuth1 -> OAuth2 ──────────────────────────────────────────
+  try {
+    console.log('\n✅ OAuth1 obtained. Exchanging for OAuth2...');
+    
     const exchangeUrl = 'https://connectapi.garmin.com/oauth-service/oauth/exchange/user/2.0';
+    const oauth = getOAuth(workingConsumer);
     const token = {
       key: oauth1.oauth_token,
       secret: oauth1.oauth_token_secret
@@ -106,13 +134,7 @@ async function main() {
     console.log('\n' + '━'.repeat(65));
 
   } catch (err) {
-    console.error('\n❌ Error during exchange:');
-    if (err.response) {
-      console.error(`Status: ${err.response.status}`);
-      console.error(`Data: ${typeof err.response.data === 'string' ? err.response.data.slice(0, 200) : JSON.stringify(err.response.data)}`);
-    } else {
-      console.error(err.message);
-    }
+    console.error('\n❌ OAuth2 exchange failed:', err.message);
     process.exit(1);
   }
 }
