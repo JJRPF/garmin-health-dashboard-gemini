@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Garmin Token Generator - "The Fail-Safe Method"
+ * Garmin Token Generator - "The Network Inspector Method"
  * 
- * This version works even if Garmin's automatic redirect fails.
+ * This is the ultimate method to get tokens when redirects are failing.
  */
 
 const readline = require('readline');
@@ -13,32 +13,37 @@ async function prompt(question) {
 }
 
 async function main() {
-  console.log('\n🏃 Garmin Token Generator (Fail-Safe Method)');
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('\n🏃 Garmin Token Generator (Network Inspector Method)');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   
-  const loginUrl = 'https://connect.garmin.com/signin';
+  const ticketUrl = 'https://sso.garmin.com/sso/login?service=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F&generateExtraServiceTicket=true';
 
-  console.log('\nSTEP 1: Log in to Garmin Connect');
-  console.log('1. Open your browser (Incognito recommended).');
-  console.log('2. Go to: \x1b[36m%s\x1b[0m', loginUrl);
-  console.log('3. Log in with your email and password.');
+  console.log('\nSTEP 1: Prepare your Browser');
+  console.log('1. Open Chrome or Safari (Incognito recommended).');
+  console.log('2. Log in to \x1b[36mhttps://connect.garmin.com\x1b[0m normally.');
+  console.log('3. Once logged in, press \x1b[1mF12\x1b[0m (or Cmd+Opt+I) to open DevTools.');
+  console.log('4. Go to the \x1b[1mNetwork\x1b[0m tab.');
+  console.log('5. \x1b[33mCRITICAL:\x1b[0m Check the \x1b[1m"Preserve Log"\x1b[0m checkbox.');
   
-  console.log('\nSTEP 2: Get your Service Ticket');
-  console.log('1. Once you are logged in and see your dashboard, PASTE this URL into the SAME tab:');
-  console.log('\x1b[33m%s\x1b[0m', 'https://sso.garmin.com/sso/login?service=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F&generateExtraServiceTicket=true');
-  console.log('2. The page will likely be blank, but the URL in your address bar will now have a ticket.');
-  console.log('3. Look for \x1b[1m"ticket=ST-XXXXX-cas"\x1b[0m in the URL.');
+  console.log('\nSTEP 2: Capture the Ticket');
+  console.log('1. Paste this URL into the SAME browser tab:');
+  console.log('\x1b[36m%s\x1b[0m', ticketUrl);
+  console.log('2. The page will redirect back to your dashboard.');
+  console.log('3. In the Network tab, look for a request named \x1b[1m"modern/"\x1b[0m.');
+  console.log('4. Click it and look at the \x1b[1mURL\x1b[0m in the "General" or "Summary" section.');
+  console.log('5. It will contain \x1b[32m?ticket=ST-XXXXX-cas\x1b[0m.');
 
-  const fullUrl = await prompt('\nSTEP 3: Paste the ENTIRE URL from your address bar here: ');
+  const input = await prompt('\nSTEP 3: Paste the Ticket (ST-...) or the full URL here: ');
 
   try {
-    const ticketMatch = fullUrl.match(/ticket=(ST-[A-Za-z0-9-]+-cas)/);
-    const ticket = ticketMatch ? ticketMatch[1] : null;
+    let ticket = input;
+    if (input.includes('ticket=')) {
+      const match = input.match(/ticket=(ST-[A-Za-z0-9-]+-cas)/);
+      ticket = match ? match[1] : null;
+    }
 
-    if (!ticket) {
-      console.error('\n❌ Error: No ticket found in that URL.');
-      console.log('The URL should look like: https://connect.garmin.com/modern/?ticket=ST-...');
-      console.log('Make sure you followed Step 2 correctly while still logged in.');
+    if (!ticket || !ticket.startsWith('ST-')) {
+      console.error('\n❌ Error: Invalid ticket format. It should start with "ST-".');
       process.exit(1);
     }
 
@@ -68,7 +73,7 @@ async function main() {
 
   } catch (err) {
     console.error('\n❌ Error during exchange:', err.message);
-    console.log('If your IP is heavily blocked, this exchange might fail. Try using a phone hotspot.');
+    console.log('Make sure you are not using a VPN or that your Vercel IP isn\'t blocked.');
     process.exit(1);
   }
 }
