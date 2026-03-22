@@ -19,15 +19,9 @@ export default function SettingsPage() {
   
   const [message, setMessage] = useState("");
   const [isHydrated, setIsHydrated] = useState(false);
-
-  // Auth flow state
-  const [authStatus, setAuthStatus] = useState<"idle" | "mfa_required" | "success" | "error">("idle");
   const [isProcessing, setIsProcessing] = useState(false);
-  const [mfaCode, setMfaCode] = useState("");
-  const [authState, setAuthState] = useState<any>(null);
   const [ticketUrl, setTicketUrl] = useState("");
 
-  // Hydration safety
   useEffect(() => {
     const savedProvider = localStorage.getItem("aiProvider") as "anthropic" | "gemini" | null;
     const savedAnthropicKey = localStorage.getItem("anthropicKey") || "";
@@ -55,7 +49,7 @@ export default function SettingsPage() {
     localStorage.setItem("garminPassword", garminPassword);
     localStorage.setItem("garminOAuth1", garminOAuth1);
     localStorage.setItem("garminOAuth2", garminOAuth2);
-    setMessage(t("settings.success"));
+    setMessage("Settings Saved Locally ✓");
     setTimeout(() => setMessage(""), 3000);
   };
 
@@ -65,9 +59,15 @@ export default function SettingsPage() {
     setMessage("");
 
     try {
-      // Extract ST-XXX from the URL
-      const match = ticketUrl.match(/ticket=(ST-[A-Za-z0-9-]+-cas)/);
-      const ticket = match ? match[1] : ticketUrl;
+      // Robust ticket extraction
+      const ticketMatch = ticketUrl.match(/ticket=(ST-[A-Za-z0-9-]+-cas)/);
+      const ticket = ticketMatch ? ticketMatch[1] : (ticketUrl.startsWith('ST-') ? ticketUrl : null);
+
+      if (!ticket) {
+        setMessage("❌ URL invalid. Make sure it contains 'ticket=ST-...'");
+        setIsProcessing(false);
+        return;
+      }
 
       const res = await fetch("/api/auth/garmin", {
         method: "POST",
@@ -76,54 +76,28 @@ export default function SettingsPage() {
 
       const data = await res.json();
       if (data.status === "success") {
-        saveTokens(data.tokens);
+        const o1 = JSON.stringify(data.tokens.oauth1);
+        const o2 = JSON.stringify(data.tokens.oauth2);
+        setGarminOAuth1(o1);
+        setGarminOAuth2(o2);
+        localStorage.setItem("garminOAuth1", o1);
+        localStorage.setItem("garminOAuth2", o2);
         setTicketUrl("");
+        setMessage("✅ Connection successful! Tokens updated.");
       } else {
-        setMessage(data.error || "Exchange failed");
+        setMessage("❌ Exchange failed: " + (data.error || "Invalid ticket"));
       }
     } catch (e) {
-      setMessage("Connection error during exchange");
+      setMessage("❌ Connection error");
     } finally {
       setIsProcessing(false);
     }
-  };
-
-  const startGarminLogin = async () => {
-    setIsProcessing(true);
-    setAuthStatus("idle");
-    setMessage("");
-    try {
-      const res = await fetch("/api/auth/garmin", {
-        method: "POST",
-        body: JSON.stringify({ action: "login", username: garminUsername, password: garminPassword }),
-      });
-      const data = await res.json();
-      if (data.status === "mfa_required") {
-        setAuthStatus("mfa_required");
-        setAuthState(data.state);
-      } else if (data.status === "success") {
-        saveTokens(data.tokens);
-      } else {
-        setMessage(data.error || "Login failed");
-      }
-    } catch (e) {
-      setMessage("Blocked by Garmin (403). Use the Mobile Bypass below.");
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const saveTokens = (tokens: any) => {
-    const o1 = JSON.stringify(tokens.oauth1);
-    const o2 = JSON.stringify(tokens.oauth2);
-    setGarminOAuth1(o1);
-    setGarminOAuth2(o2);
-    localStorage.setItem("garminOAuth1", o1);
-    localStorage.setItem("garminOAuth2", o2);
-    setMessage("✅ Connected successfully!");
   };
 
   if (!isHydrated) return null;
+
+  // This URL forces a fresh login to ensure a valid ticket is generated
+  const forceLoginUrl = "https://sso.garmin.com/sso/login?service=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F&webhost=https%3A%2F%2Fconnect.garmin.com&source=https%3A%2F%2Fconnect.garmin.com%2Fsignin&gauthHost=https%3A%2F%2Fsso.garmin.com%2Fsso&locale=en_US&id=gauth-widget&clientId=GarminConnect&initialFocus=true&embedWidget=false&generateExtraServiceTicket=true&reauth=true";
 
   return (
     <div className="min-h-screen bg-bg pb-28 text-white">
@@ -132,124 +106,102 @@ export default function SettingsPage() {
           <Link href="/" className="p-1.5 rounded-lg text-secondary hover:text-primary hover:bg-surface transition-colors">
             <ChevronLeft size={20} />
           </Link>
-          <h1 className="text-sm font-bold text-primary">{t("settings.title")}</h1>
+          <h1 className="text-sm font-bold text-primary">Device & AI Settings</h1>
         </div>
       </header>
 
       <main className="max-w-md mx-auto px-4 pt-6 flex flex-col gap-6">
         
-        {/* Bypass Section */}
+        {/* Connection Wizard */}
         <section className="flex flex-col gap-3">
-          <h2 className="text-xs font-bold text-blue-500 uppercase tracking-widest px-1 flex items-center gap-2">
-            <Globe size={12} />
-            Mobile Login (Bypass 403)
-          </h2>
-          <div className="card border-blue-500/30 bg-blue-500/5">
-            <div className="flex flex-col gap-4 text-xs">
-              <p className="text-secondary leading-relaxed">
-                If the standard "Sign In" fails, use this method to log in via your phone's IP address.
-              </p>
-              
-              <a 
-                href="https://sso.garmin.com/sso/signin?service=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F&webhost=https%3A%2F%2Fconnect.garmin.com&source=https%3A%2F%2Fconnect.garmin.com%2Fsignin&gauthHost=https%3A%2F%2Fsso.garmin.com%2Fsso&locale=en_US&id=gauth-widget&clientId=GarminConnect&initialFocus=true&embedWidget=false&generateExtraServiceTicket=true"
-                target="_blank"
-                className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-center font-bold rounded-xl transition-all flex items-center justify-center gap-2"
-              >
-                1. Log in on Garmin.com
-                <ExternalLink size={14} />
-              </a>
+          <div className="flex items-center justify-between px-1">
+            <h2 className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em]">Garmin Connection (403 Bypass)</h2>
+            <span className="bg-blue-500/20 text-blue-400 text-[8px] px-2 py-0.5 rounded-full font-bold">RELIABLE</span>
+          </div>
+          
+          <div className="card border-blue-500/30 bg-blue-500/5 overflow-hidden">
+            <div className="p-4 space-y-5">
+              <div>
+                <p className="text-[11px] text-secondary mb-3 leading-relaxed">
+                  1. Click the button below to log in on the official Garmin site.
+                </p>
+                <a 
+                  href={forceLoginUrl}
+                  target="_blank"
+                  className="w-full py-3.5 bg-blue-600 hover:bg-blue-500 text-center font-bold rounded-xl transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20"
+                >
+                  Log in on Garmin.com
+                  <ExternalLink size={14} />
+                </a>
+              </div>
 
-              <div className="space-y-2">
-                <p className="text-[10px] uppercase font-bold text-muted ml-1">2. Paste result URL or Ticket</p>
+              <div className="pt-4 border-t border-white/5 space-y-3">
+                <p className="text-[11px] text-secondary leading-relaxed">
+                  2. After login, you'll see a blank page. <b>Copy the URL</b> from your browser's address bar and paste it here:
+                </p>
                 <input
                   type="text"
                   value={ticketUrl}
                   onChange={(e) => setTicketUrl(e.target.value)}
                   placeholder="https://connect.garmin.com/modern/?ticket=ST-..."
-                  className="w-full bg-black/50 border border-blue-500/30 rounded-xl px-4 py-3 text-[10px] focus:outline-none focus:border-blue-500 text-white"
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3.5 text-[10px] focus:outline-none focus:border-blue-500 text-white font-mono"
                 />
                 <button
                   onClick={exchangeTicket}
                   disabled={!ticketUrl || isProcessing}
-                  className="w-full py-3 bg-white text-black font-bold rounded-xl text-xs disabled:opacity-50"
+                  className="w-full py-3.5 bg-white text-black font-black rounded-xl text-[11px] uppercase tracking-wider shadow-xl disabled:opacity-50 active:scale-95 transition-all"
                 >
-                  {isProcessing ? "Processing..." : "3. Extract & Save Tokens"}
+                  {isProcessing ? "Validating..." : "Connect My Account"}
                 </button>
               </div>
             </div>
           </div>
         </section>
 
-        {/* Garmin Standard Section */}
+        {/* Credentials Backup */}
         <section className="flex flex-col gap-3">
-          <h2 className="text-xs font-bold text-secondary uppercase tracking-widest px-1">Standard Sign In</h2>
+          <h2 className="text-[10px] font-black text-muted uppercase tracking-[0.2em] px-1">Cloud Credentials (Optional)</h2>
           <div className="card">
-            <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-3">
               <input
                 type="email"
                 value={garminUsername}
                 onChange={(e) => setGarminUsername(e.target.value)}
-                className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-sm text-white"
-                placeholder="Garmin Email"
+                className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-xs text-white"
+                placeholder="Email (used for summary only)"
               />
-              <input
-                type="password"
-                value={garminPassword}
-                onChange={(e) => setGarminPassword(e.target.value)}
-                className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-sm text-white"
-                placeholder="Garmin Password"
-              />
-              <button
-                onClick={startGarminLogin}
-                disabled={isProcessing || !garminUsername}
-                className="py-3 bg-surface border border-border rounded-xl text-xs font-bold text-secondary hover:text-primary transition-all"
-              >
-                Sign in to Garmin
-              </button>
+              <p className="text-[9px] text-muted px-1">Note: Passwords are no longer needed if using the bypass method above.</p>
             </div>
           </div>
         </section>
 
-        {/* Tokens Section */}
+        {/* AI Configuration */}
         <section className="flex flex-col gap-3">
-          <h2 className="text-xs font-bold text-secondary uppercase tracking-widest px-1">Active Tokens</h2>
-          <div className="card">
-            <div className="flex flex-col gap-4">
-              <textarea
-                value={garminOAuth1}
-                readOnly
-                className="w-full bg-black/30 border border-border rounded-xl px-4 py-3 text-[9px] font-mono h-16 resize-none opacity-60"
-                placeholder="GARMIN_OAUTH1 (Auto-filled)"
-              />
-              <textarea
-                value={garminOAuth2}
-                readOnly
-                className="w-full bg-black/30 border border-border rounded-xl px-4 py-3 text-[9px] font-mono h-16 resize-none opacity-60"
-                placeholder="GARMIN_OAUTH2 (Auto-filled)"
-              />
-            </div>
-          </div>
-        </section>
-
-        {/* AI Section */}
-        <section className="flex flex-col gap-3">
-          <h2 className="text-xs font-bold text-secondary uppercase tracking-widest px-1">AI Provider</h2>
+          <h2 className="text-[10px] font-black text-muted uppercase tracking-[0.2em] px-1">AI Intelligence</h2>
           <div className="card">
             <div className="grid grid-cols-2 gap-2 mb-4">
-              <button onClick={() => setAiProvider("anthropic")} className={`py-3 rounded-xl border text-xs font-bold ${aiProvider === "anthropic" ? "border-primary text-primary bg-primary/10" : "border-border text-muted"}`}>Anthropic</button>
-              <button onClick={() => setAiProvider("gemini")} className={`py-3 rounded-xl border text-xs font-bold ${aiProvider === "gemini" ? "border-primary text-primary bg-primary/10" : "border-border text-muted"}`}>Gemini</button>
+              <button onClick={() => setAiProvider("anthropic")} className={`py-3 rounded-xl border text-xs font-bold transition-all ${aiProvider === "anthropic" ? "border-primary text-primary bg-primary/10" : "border-border text-muted"}`}>Anthropic</button>
+              <button onClick={() => setAiProvider("gemini")} className={`py-3 rounded-xl border text-xs font-bold transition-all ${aiProvider === "gemini" ? "border-primary text-primary bg-primary/10" : "border-border text-muted"}`}>Gemini</button>
             </div>
-            <input type="password" value={anthropicKey} onChange={e => setAnthropicKey(e.target.value)} className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-xs mb-3" placeholder="Anthropic Key" />
-            <input type="password" value={googleKey} onChange={e => setGoogleKey(e.target.value)} className="w-full bg-bg border border-border rounded-xl px-4 py-3 text-xs" placeholder="Google Key" />
+            <div className="space-y-3">
+              <div className="relative">
+                <Brain size={12} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted" />
+                <input type="password" value={anthropicKey} onChange={e => setAnthropicKey(e.target.value)} className="w-full bg-bg border border-border rounded-xl pl-10 pr-4 py-3 text-xs" placeholder="Anthropic API Key" />
+              </div>
+              <div className="relative">
+                <Sparkles size={12} className="absolute left-4 top-1/2 -translate-y-1/2 text-muted" />
+                <input type="password" value={googleKey} onChange={e => setGoogleKey(e.target.value)} className="w-full bg-bg border border-border rounded-xl pl-10 pr-4 py-3 text-xs" placeholder="Google Gemini Key" />
+              </div>
+            </div>
           </div>
         </section>
 
         <button onClick={handleSave} className="w-full bg-primary text-white font-bold py-4 rounded-2xl shadow-lg shadow-primary/20 active:scale-95 transition-all flex items-center justify-center gap-2">
-          <Save size={18} /> Save Settings
+          <Save size={18} /> Update Local Settings
         </button>
 
         {message && (
-          <div className="fixed bottom-24 left-1/2 -translate-x-1/2 bg-surface border border-border text-white text-[10px] font-bold px-6 py-3 rounded-full shadow-2xl animate-fade-up z-50">
+          <div className="fixed bottom-24 left-1/2 -translate-x-1/2 bg-surface border border-border text-white text-[10px] font-bold px-6 py-3 rounded-full shadow-2xl animate-fade-up z-50 whitespace-nowrap">
             {message}
           </div>
         )}
