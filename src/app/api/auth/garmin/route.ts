@@ -31,29 +31,31 @@ function extractInput(html: string, name: string) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { action, username, password, mfaCode, state } = await req.json();
+    const body = await req.json();
+    const { action, username, password, mfaCode, state } = body;
     
-    // Improved cookie handling for serverless
+    console.log(`[Auth] Action: ${action} for ${username || 'current session'}`);
+
     const jar = new CookieJar();
     if (state?.cookies) {
-      const cookieStore = typeof state.cookies === 'string' ? JSON.parse(state.cookies) : state.cookies;
-      // Reconstruct jar from serialized store
-      for (const cookie of (cookieStore.cookies || [])) {
-        jar.setCookieSync(CookieJar.deserializeSync(cookie).toString(), 'https://sso.garmin.com');
-      }
+      // @ts-ignore - deserialize full jar state
+      jar.setCookieSync(state.cookies, 'https://sso.garmin.com');
     }
 
     const axiosInst = wrapper(axios.create({ 
       jar, 
       withCredentials: true,
-      headers: { 'User-Agent': UA }
+      headers: { 
+        'User-Agent': UA,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      }
     }));
 
     const SSO = 'https://sso.garmin.com/sso';
     const QS = 'service=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F&webhost=https%3A%2F%2Fconnect.garmin.com&source=https%3A%2F%2Fconnect.garmin.com%2Fsignin&gauthHost=https%3A%2F%2Fsso.garmin.com%2Fsso&locale=en_US&id=gauth-widget&clientId=GarminConnect&initialFocus=true&embedWidget=false&generateExtraServiceTicket=true&connectLegalTerms=true';
 
     if (action === 'login') {
-      console.log(`[Auth] Starting login for ${username}`);
       const signinUrl = `${SSO}/signin?${QS}`;
       const page1 = await axiosInst.get(signinUrl);
       const html1 = page1.data;
@@ -86,20 +88,25 @@ export async function POST(req: NextRequest) {
       }
 
       if (html2.includes('mfa-code') || html2.includes('loginEnterMfaCode')) {
+        console.log('[Auth] MFA Required');
         return NextResponse.json({
           status: 'mfa_required',
           state: {
             csrf: extractInput(html2, '_csrf'),
-            cookies: jar.serializeSync(), // Better serialization
+            cookies: jar.serializeSync(),
           }
         });
       }
 
-      return NextResponse.json({ error: 'Login failed. Invalid credentials or temporary block.' }, { status: 401 });
+      // Detect "invalid credentials" vs "bot block"
+      if (html2.includes('Invalid user name or password') || html2.includes('signin-error')) {
+        return NextResponse.json({ error: 'Invalid email or password.' }, { status: 401 });
+      }
+
+      return NextResponse.json({ error: 'Garmin rejected the request. This usually means bot detection (403). Try mobile data or wait 15 min.' }, { status: 403 });
     }
 
     if (action === 'verify') {
-      console.log(`[Auth] Verifying MFA code for session...`);
       const mfaBody = new URLSearchParams();
       mfaBody.set('mfa', mfaCode.trim());
       mfaBody.set('embed', 'true');
@@ -119,43 +126,53 @@ export async function POST(req: NextRequest) {
         return await performExchange(ticket[1]);
       }
 
-      // If we land back on MFA page, the code was wrong
       if (page3.data.includes('mfa-code')) {
-        return NextResponse.json({ error: 'The code was rejected by Garmin. Please try the latest code.' }, { status: 401 });
+        return NextResponse.json({ error: 'The code was rejected. Please use the most recent email code.' }, { status: 401 });
       }
 
-      return NextResponse.json({ error: 'MFA session expired. Please sign in again.' }, { status: 401 });
+      return NextResponse.json({ error: 'Session expired. Please sign in again.' }, { status: 401 });
     }
 
   } catch (err: any) {
-    console.error('[Auth] Garmin error:', err.response?.status, err.message);
+    console.error('[Auth] Raw Error:', err.response?.status, err.message);
     const status = err.response?.status || 500;
-    const message = status === 429 ? 'Too many attempts. Wait 15 mins.' : 'Authentication error';
-    return NextResponse.json({ error: message }, { status });
+    
+    if (status === 403) {
+      return NextResponse.json({ error: 'Garmin Blocked (403). Please use your terminal script instead.' }, { status: 403 });
+    }
+    
+    return NextResponse.json({ 
+      error: `Auth error (${status}): ${err.message || 'Unknown'}` 
+    }, { status });
   }
 }
 
 async function performExchange(ticket: string) {
-  // Phase 1: Ticket -> OAuth1
-  const preauthUrl = `https://connectapi.garmin.com/oauth-service/oauth/preauthorized?ticket=${ticket}&login-url=https%3A%2F%2Fsso.garmin.com%2Fsso%2Fembed&accepts-mfa-tokens=true`;
-  const authHeader1 = oauth.toHeader(oauth.authorize({ url: preauthUrl, method: 'GET' }));
-  const res1 = await axios.get(preauthUrl, { headers: { ...authHeader1, 'User-Agent': UA } });
-  const oauth1 = qs.parse(res1.data);
+  try {
+    // Phase 1: Ticket -> OAuth1
+    const preauthUrl = `https://connectapi.garmin.com/oauth-service/oauth/preauthorized?ticket=${ticket}&login-url=https%3A%2F%2Fsso.garmin.com%2Fsso%2Fembed&accepts-mfa-tokens=true`;
+    const authHeader1 = oauth.toHeader(oauth.authorize({ url: preauthUrl, method: 'GET' }));
+    const res1 = await axios.get(preauthUrl, { headers: { ...authHeader1, 'User-Agent': UA } });
+    const oauth1 = qs.parse(res1.data);
 
-  // Phase 2: OAuth1 -> OAuth2
-  const exchangeUrl = 'https://connectapi.garmin.com/oauth-service/oauth/exchange/user/2.0';
-  const token = { key: oauth1.oauth_token as string, secret: oauth1.oauth_token_secret as string };
-  const authData = oauth.authorize({ url: exchangeUrl, method: 'POST' }, token);
-  const finalUrl = `${exchangeUrl}?${qs.stringify(authData)}`;
-  const res2 = await axios.post(finalUrl, null, {
-    headers: { 'User-Agent': UA, 'Content-Type': 'application/x-www-form-urlencoded' }
-  });
+    // Phase 2: OAuth1 -> OAuth2
+    const exchangeUrl = 'https://connectapi.garmin.com/oauth-service/oauth/exchange/user/2.0';
+    const token = { key: oauth1.oauth_token as string, secret: oauth1.oauth_token_secret as string };
+    const authData = oauth.authorize({ url: exchangeUrl, method: 'POST' }, token);
+    const finalUrl = `${exchangeUrl}?${qs.stringify(authData)}`;
+    const res2 = await axios.post(finalUrl, null, {
+      headers: { 'User-Agent': UA, 'Content-Type': 'application/x-www-form-urlencoded' }
+    });
 
-  return NextResponse.json({
-    status: 'success',
-    tokens: {
-      oauth1: oauth1,
-      oauth2: res2.data,
-    }
-  });
+    return NextResponse.json({
+      status: 'success',
+      tokens: {
+        oauth1: oauth1,
+        oauth2: res2.data,
+      }
+    });
+  } catch (e: any) {
+    console.error('[Auth] Exchange failed:', e.message);
+    return NextResponse.json({ error: 'Token exchange failed. Please use terminal script.' }, { status: 500 });
+  }
 }
