@@ -1,11 +1,8 @@
 #!/usr/bin/env node
 /**
- * Semi-Manual Garmin Token Generator
+ * Semi-Manual Garmin Token Generator (Improved)
  * 
- * 1. Opens the official Garmin login in your browser.
- * 2. You log in manually (bypassing all bot detection).
- * 3. You paste the resulting URL back here.
- * 4. This script exchanges the ticket for long-lived OAuth tokens.
+ * Uses a more reliable redirect target and provides better instructions.
  */
 
 const readline = require('readline');
@@ -18,36 +15,38 @@ async function prompt(question) {
 async function main() {
   console.log('\n🏃 Garmin Semi-Manual Token Generator');
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  console.log('This method is 100% reliable because YOU perform the login in your browser.');
   
-  const loginUrl = 'https://sso.garmin.com/sso/signin?service=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F&webhost=https%3A%2F%2Fconnect.garmin.com&source=https%3A%2F%2Fconnect.garmin.com%2Fsignin&gauthHost=https%3A%2F%2Fsso.garmin.com%2Fsso&locale=en_US&id=gauth-widget&clientId=GarminConnect&initialFocus=true&embedWidget=false&generateExtraServiceTicket=true&connectLegalTerms=true';
+  // A slightly different URL that is often more reliable for CAS tickets
+  const loginUrl = 'https://sso.garmin.com/sso/signin?service=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F&webhost=https%3A%2F%2Fconnect.garmin.com&source=https%3A%2F%2Fconnect.garmin.com%2Fsignin&redirectAfterAccountLoginUrl=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F&redirectAfterAccountCreationUrl=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F&gauthHost=https%3A%2F%2Fsso.garmin.com%2Fsso&locale=en_US&id=gauth-widget&clientId=GarminConnect&initialFocus=true&embedWidget=false&generateExtraServiceTicket=true';
 
-  console.log('\nSTEP 1: Open this URL in your browser and log in:');
+  console.log('\n\x1b[33m%s\x1b[0m', 'CRITICAL: Open your browser in INCOGNITO / PRIVATE mode first!');
+  console.log('\nSTEP 1: Paste this URL into your INCOGNITO browser and log in:');
   console.log('\x1b[36m%s\x1b[0m', loginUrl);
   
-  console.log('\nSTEP 2: After logging in, you will see a BLANK PAGE.');
-  console.log('Copy the ENTIRE URL from the address bar (it starts with "https://connect.garmin.com/modern/?ticket=...")');
+  console.log('\nSTEP 2: After logging in, wait for the page to redirect.');
+  console.log('The URL in your address bar will change to one containing "ticket=ST-..."');
+  console.log('Copy that ENTIRE URL.');
 
-  const fullUrl = await prompt('\nSTEP 3: Paste the copied URL here: ');
+  const fullUrl = await prompt('\nSTEP 3: Paste the NEW URL here: ');
 
   try {
-    const url = new URL(fullUrl);
-    const ticket = url.searchParams.get('ticket');
+    // Try to find the ticket anywhere in the string
+    const ticketMatch = fullUrl.match(/ticket=(ST-[A-Za-z0-9-]+-cas)/);
+    const ticket = ticketMatch ? ticketMatch[1] : null;
 
     if (!ticket) {
-      console.error('\n❌ Error: Could not find a "ticket" in that URL. Did you copy the whole thing?');
+      console.error('\n❌ Error: Could not find a ticket (starts with "ST-") in that URL.');
+      console.log('Make sure you copied the URL AFTER logging in, not the one I gave you.');
       process.exit(1);
     }
 
-    console.log('\n✅ Ticket found! Exchanging for tokens...');
+    console.log('\n✅ Ticket found: ' + ticket.slice(0, 10) + '...');
+    console.log('Exchanging for long-lived tokens...');
 
-    // We need the @gooin/garmin-connect package for the exchange
     const { GarminConnect } = require('@gooin/garmin-connect');
-    
-    // We use dummy credentials because the ticket is already authenticated
     const gc = new GarminConnect({ username: 'user@example.com', password: 'password' });
     
-    // @ts-ignore - access internal httpClient
+    // @ts-ignore
     const oauth1 = await gc.client.getOauth1Token(ticket);
     // @ts-ignore
     await gc.client.exchange(oauth1);
@@ -67,7 +66,7 @@ async function main() {
 
   } catch (err) {
     console.error('\n❌ Error during exchange:', err.message);
-    console.log('Try running the script again. If it still fails, your Vercel IP might be blocked from the exchange API.');
+    console.log('Check if you copied the whole URL. If it still fails, wait 10 minutes and try again.');
     process.exit(1);
   }
 }
