@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 /**
- * Garmin Token Generator - Pure HTTP Exchange
+ * Garmin Token Generator - Pure HTTP Exchange (Corrected Host)
  * 
- * This version bypasses the library's internal logic to provide 
- * better error reporting and a more robust exchange.
+ * Host fixed to connectapi.garmin.com
  */
 
 const readline = require('readline');
@@ -17,7 +16,7 @@ async function prompt(question) {
   return new Promise(resolve => rl.question(question, ans => { rl.close(); resolve(ans.trim()); }));
 }
 
-// Garmin's OAuth Consumer Key/Secret (Publicly known for the Connect App)
+// Garmin's OAuth Consumer Key/Secret
 const CONSUMER_KEY = '693a9ef8-4962-49cf-b6a4-87b69503646d';
 const CONSUMER_SECRET = 'bc9f54f0-4939-4018-9125-e0d930d44ad0';
 
@@ -58,7 +57,8 @@ async function main() {
     console.log('\n✅ Ticket received. Exchanging for OAuth1...');
 
     // ─── Phase 1: Ticket -> OAuth1 ──────────────────────────────────────────
-    const preauthUrl = `https://oauth.garmin.com/oauth-service-1.0/oauth/preauthorized?ticket=${ticket}&login-url=https%3A%2F%2Fsso.garmin.com%2Fsso%2Fembed&accepts-mfa-tokens=true`;
+    // Correct Host: connectapi.garmin.com
+    const preauthUrl = `https://connectapi.garmin.com/oauth-service/oauth/preauthorized?ticket=${ticket}&login-url=https%3A%2F%2Fsso.garmin.com%2Fsso%2Fembed&accepts-mfa-tokens=true`;
     
     const req1 = { url: preauthUrl, method: 'GET' };
     const authHeader = oauth.toHeader(oauth.authorize(req1));
@@ -78,14 +78,13 @@ async function main() {
     console.log('✅ OAuth1 obtained. Exchanging for OAuth2...');
 
     // ─── Phase 2: OAuth1 -> OAuth2 ──────────────────────────────────────────
-    const exchangeUrl = 'https://oauth.garmin.com/oauth-service-1.0/oauth/exchange/user/2.0';
+    const exchangeUrl = 'https://connectapi.garmin.com/oauth-service/oauth/exchange/user/2.0';
     const token = {
       key: oauth1.oauth_token,
       secret: oauth1.oauth_token_secret
     };
 
     const req2 = { url: exchangeUrl, method: 'POST' };
-    // Garmin requires the auth params in the query string for this specific POST
     const authData = oauth.authorize(req2, token);
     const finalUrl = `${exchangeUrl}?${qs.stringify(authData)}`;
 
