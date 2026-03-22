@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useLang } from "@/lib/i18n";
-import { ChevronLeft, Save, Sparkles, Brain, User, Activity, RefreshCw, ShieldCheck } from "lucide-react";
+import { ChevronLeft, Save, Sparkles, Brain, User, Activity, RefreshCw, ShieldCheck, AlertTriangle, ExternalLink, Terminal } from "lucide-react";
 import Link from "next/link";
 import BottomNav from "@/components/BottomNav";
 
@@ -93,7 +93,7 @@ export default function SettingsPage() {
       }
     } catch (e) {
       setAuthStatus("error");
-      setMessage("Connection error");
+      setMessage("Connection error (likely blocked by Garmin)");
     } finally {
       setIsProcessing(false);
     }
@@ -283,6 +283,46 @@ export default function SettingsPage() {
                     </div>
                   </div>
                 )}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Troubleshooting Section */}
+        <section className="flex flex-col gap-3">
+          <h2 className="text-xs font-bold text-secondary uppercase tracking-widest px-1 flex items-center gap-2">
+            <AlertTriangle size={12} className="text-yellow-500" />
+            Troubleshooting
+          </h2>
+          <div className="card bg-yellow-500/5 border-yellow-500/20">
+            <div className="flex flex-col gap-4 text-xs leading-relaxed text-secondary">
+              <p className="font-semibold text-yellow-500/90">
+                Getting a 403 Forbidden error?
+              </p>
+              <p>
+                Garmin often blocks Vercel servers. If the "Sign In" button above fails, use the local terminal method:
+              </p>
+              
+              <div className="bg-black/40 rounded-xl p-3 border border-white/5 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Terminal size={14} className="text-muted" />
+                  <code className="text-[10px] text-primary">node scripts/get-garmin-tokens.js</code>
+                </div>
+                <button 
+                  onClick={() => navigator.clipboard.writeText("node scripts/get-garmin-tokens.js")}
+                  className="text-[10px] hover:text-white underline"
+                >
+                  Copy
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                <p className="font-bold text-[10px] uppercase tracking-wider text-muted">Steps:</p>
+                <ol className="list-decimal list-inside space-y-1 ml-1">
+                  <li>Run the command above in your computer's terminal.</li>
+                  <li>Follow the prompts to log in and enter your MFA code.</li>
+                  <li>Copy the resulting JSON strings and paste them into the <b>Manual Tokens</b> fields above.</li>
+                </ol>
               </div>
             </div>
           </div>

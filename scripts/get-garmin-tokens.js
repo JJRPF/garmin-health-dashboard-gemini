@@ -1,28 +1,13 @@
 #!/usr/bin/env node
 /**
  * Run this script ONCE locally to get long-lived Garmin OAuth tokens.
- * Supports accounts with MFA (email verification code) enabled.
- *
- * Usage:
- *   node scripts/get-garmin-tokens.js
+ * Uses the Mobile App headers to bypass strict Web SSO bot detection.
  */
 
 const readline = require('readline');
 const axios = require('axios');
 const { wrapper } = require('axios-cookiejar-support');
 const { CookieJar } = require('tough-cookie');
-
-// ── Load .env.local ──────────────────────────────────────────────────────────
-try {
-  const fs = require('fs');
-  const envPath = require('path').join(__dirname, '..', '.env.local');
-  if (fs.existsSync(envPath)) {
-    fs.readFileSync(envPath, 'utf8').split('\n').forEach(line => {
-      const m = line.match(/^([^#=]+)=(.*)$/);
-      if (m) process.env[m[1].trim()] = m[2].trim().replace(/^["']|["']$/g, '');
-    });
-  }
-} catch (_) { /* ignore */ }
 
 // ── Prompt helper ────────────────────────────────────────────────────────────
 async function prompt(question, hidden = false) {
@@ -61,14 +46,27 @@ function extractInput(html, name) {
   return val ? val[1] : null;
 }
 
-async function ssoLogin(axiosInst, username, password) {
+async function main() {
+  console.log('\n🏃 Garmin Token Generator');
+  console.log('───────────────────────────');
+
+  const user = await prompt('📧  Garmin Email: ');
+  const pass = await prompt('🔑  Garmin Password: ', true);
+
+  if (!user || !pass) {
+    console.error('❌ Email and password required');
+    process.exit(1);
+  }
+
+  const jar = new CookieJar();
+  const axiosInst = wrapper(axios.create({ jar, withCredentials: true }));
+
+  // Mobile App SSO Parameters
   const SSO = 'https://sso.garmin.com/sso';
   const QS = [
     'service=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F',
     'webhost=https%3A%2F%2Fconnect.garmin.com',
     'source=https%3A%2F%2Fconnect.garmin.com%2Fsignin',
-    'redirectAfterAccountLoginUrl=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F',
-    'redirectAfterAccountCreationUrl=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F',
     'gauthHost=https%3A%2F%2Fsso.garmin.com%2Fsso',
     'locale=en_US',
     'id=gauth-widget',
@@ -76,40 +74,26 @@ async function ssoLogin(axiosInst, username, password) {
     'initialFocus=true',
     'embedWidget=false',
     'generateExtraServiceTicket=true',
-    'generateTwoExtraServiceTickets=false',
-    'generateNoServiceTicket=false',
     'connectLegalTerms=true',
   ].join('&');
 
-  const signinUrl = `${SSO}/signin?${QS}`;
-  // Using a very standard, modern Chrome user agent to avoid 403
-  const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Number/126.0.0.0 Safari/537.36';
+  // Use the Mobile App User Agent
+  const UA = 'com.garmin.android.apps.connectmobile/4.71.1 (Android 13; Scale/2.25)';
 
-  const defaultHeaders = {
-    'User-Agent': UA,
-    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-    'Accept-Language': 'en-US,en;q=0.9',
-    'Connection': 'keep-alive',
-    'Upgrade-Insecure-Requests': '1',
-    'Sec-Fetch-Dest': 'document',
-    'Sec-Fetch-Mode': 'navigate',
-    'Sec-Fetch-Site': 'none',
-    'Sec-Fetch-User': '?1',
-  };
-
-  console.log('  [1/3] Initializing session...');
   try {
-    const page1 = await axiosInst.get(signinUrl, { headers: defaultHeaders });
+    console.log('\n🔐  Attempting login...');
+    const signinUrl = `${SSO}/signin?${QS}`;
+    
+    const page1 = await axiosInst.get(signinUrl, { headers: { 'User-Agent': UA } });
     const html1 = page1.data;
 
     const csrf1 = extractInput(html1, '_csrf');
     const lt = extractInput(html1, 'lt');
     const execution = extractInput(html1, 'execution');
 
-    console.log('  [2/3] Submitting credentials...');
     const loginBody = new URLSearchParams();
-    loginBody.set('username', username);
-    loginBody.set('password', password);
+    loginBody.set('username', user);
+    loginBody.set('password', pass);
     loginBody.set('embed', 'true');
     loginBody.set('_eventId', 'submit');
     if (csrf1) loginBody.set('_csrf', csrf1);
@@ -118,121 +102,74 @@ async function ssoLogin(axiosInst, username, password) {
 
     const page2 = await axiosInst.post(signinUrl, loginBody.toString(), {
       headers: {
-        ...defaultHeaders,
         'Content-Type': 'application/x-www-form-urlencoded',
-        'Origin': 'https://sso.garmin.com',
+        'User-Agent': UA,
         'Referer': signinUrl,
-        'Sec-Fetch-Site': 'same-origin',
       },
     });
 
     const html2 = page2.data;
-    const ticket = html2.match(/ticket=([^"&\s]+)/);
-    if (ticket) return ticket[1];
+    let ticket = html2.match(/ticket=([^"&\s]+)/);
 
-    // Detect MFA
-    if (!html2.includes('mfa-code') && !html2.includes('loginEnterMfaCode')) {
-      throw new Error('Login failed. Please check your credentials or check if your account is locked (403 usually means bot detection).');
+    if (!ticket && (html2.includes('mfa-code') || html2.includes('loginEnterMfaCode'))) {
+      console.log('📧  MFA required. Check your email for a code.');
+      const mfaCode = await prompt('\n🔢  Enter the 6-digit code: ');
+      
+      const csrf2 = extractInput(html2, '_csrf');
+      const mfaBody = new URLSearchParams();
+      mfaBody.set('mfa', mfaCode.trim());
+      mfaBody.set('embed', 'true');
+      mfaBody.set('_eventId', 'submit');
+      if (csrf2) mfaBody.set('_csrf', csrf2);
+
+      const page3 = await axiosInst.post(
+        `${SSO}/verifyMFA/loginEnterMfaCode?${QS}`,
+        mfaBody.toString(),
+        {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'User-Agent': UA,
+            'Referer': signinUrl,
+          },
+        }
+      );
+      ticket = page3.data.match(/ticket=([^"&\s]+)/);
     }
 
-    console.log('  [MFA] MFA required. A code has been sent to your email.');
-    const mfaCode = await prompt('\n📧  Enter the 6-digit code: ');
-    if (!mfaCode) throw new Error('No code entered.');
-
-    const csrf2 = extractInput(html2, '_csrf');
-    const mfaBody = new URLSearchParams();
-    mfaBody.set('mfa', mfaCode.trim());
-    mfaBody.set('embed', 'true');
-    mfaBody.set('_eventId', 'submit');
-    if (csrf2) mfaBody.set('_csrf', csrf2);
-
-    console.log('  [3/3] Verifying code...');
-    const page3 = await axiosInst.post(
-      `${SSO}/verifyMFA/loginEnterMfaCode?${QS}`,
-      mfaBody.toString(),
-      {
-        headers: {
-          ...defaultHeaders,
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Origin': 'https://sso.garmin.com',
-          'Referer': signinUrl,
-          'Sec-Fetch-Site': 'same-origin',
-        },
-      }
-    );
-
-    const html3 = page3.data;
-    const ticket3 = html3.match(/ticket=([^"&\s]+)/);
-    if (!ticket3) {
-      throw new Error('MFA code rejected. Make sure you used the latest code and try again.');
+    if (!ticket) {
+      throw new Error('Could not obtain login ticket. Check credentials or if Garmin is blocking your IP.');
     }
 
-    return ticket3[1];
-  } catch (err) {
-    if (err.response?.status === 403) {
-      throw new Error('Garmin blocked the request (403 Forbidden). This is likely bot detection. Try running the script from a different network or waiting 1 hour.');
-    }
-    throw err;
-  }
-}
-
-async function main() {
-  const { GarminConnect } = require('@gooin/garmin-connect');
-
-  let user = process.env.GARMIN_USERNAME;
-  let pass = process.env.GARMIN_PASSWORD;
-
-  if (!user) user = await prompt('Garmin username (email): ');
-  if (!pass) pass = await prompt('Garmin password: ', true);
-
-  if (!user || !pass) {
-    console.error('❌  Username and password are required');
-    process.exit(1);
-  }
-
-  console.log(`\n🔐  Logging in as ${user}...`);
-
-  const jar = new CookieJar();
-  const axiosInst = wrapper(axios.create({ jar, withCredentials: true }));
-
-  let ticket;
-  try {
-    ticket = await ssoLogin(axiosInst, user, pass);
-    console.log('  Login successful ✓');
-  } catch (err) {
-    console.error('\n❌ ', err.message);
-    process.exit(1);
-  }
-
-  try {
-    console.log('  Exchanging ticket for tokens...');
+    console.log('✅  Login successful. Exchanging tokens...');
+    const { GarminConnect } = require('@gooin/garmin-connect');
     const gc = new GarminConnect({ username: user, password: pass });
+    
     // @ts-ignore
-    const oauth1 = await gc.client.getOauth1Token(ticket);
+    const oauth1 = await gc.client.getOauth1Token(ticket[1]);
     // @ts-ignore
     await gc.client.exchange(oauth1);
 
-    const tokens = {
-      oauth1: gc.client.oauth1Token,
-      oauth2: gc.client.oauth2Token,
-    };
+    const o1 = JSON.stringify(gc.client.oauth1Token);
+    const o2 = JSON.stringify(gc.client.oauth2Token);
 
-    if (!tokens.oauth1 || !tokens.oauth2) throw new Error('Could not extract tokens');
-
-    console.log('\n✅  Tokens obtained!\n');
-    console.log('GARMIN_OAUTH1 (Copy this entire string):');
-    console.log(JSON.stringify(tokens.oauth1));
-    console.log('\nGARMIN_OAUTH2 (Copy this entire string):');
-    console.log(JSON.stringify(tokens.oauth2));
-    console.log('\nPaste these values into your app settings under the "MFA" section.');
+    console.log('\n' + '━'.repeat(50));
+    console.log('🚀 SUCCESS! COPY THESE TWO STRINGS:');
+    console.log('━'.repeat(50));
+    console.log('\nGARMIN_OAUTH1:');
+    console.log(o1);
+    console.log('\nGARMIN_OAUTH2:');
+    console.log(o2);
+    console.log('\n' + '━'.repeat(50));
+    console.log('Paste them into your app settings under "Advanced / Manual Tokens".\n');
 
   } catch (err) {
-    console.error('\n❌  Token exchange failed:', err.message);
+    if (err.response?.status === 403) {
+      console.error('\n❌ Garmin 403: Your IP is temporarily blocked. Try again in 1 hour or use a phone hotspot.');
+    } else {
+      console.error('\n❌ Error:', err.message);
+    }
     process.exit(1);
   }
 }
 
-main().catch(err => {
-  console.error('Unexpected error:', err);
-  process.exit(1);
-});
+main();
