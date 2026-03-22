@@ -24,12 +24,16 @@ const oauth = new OAuth({
 const SSO_BASE = 'https://sso.garmin.com/sso';
 const LOGIN_QS = 'service=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F&webhost=https%3A%2F%2Fconnect.garmin.com&source=https%3A%2F%2Fconnect.garmin.com%2Fsignin&gauthHost=https%3A%2F%2Fsso.garmin.com%2Fsso&locale=en_US&id=gauth-widget&clientId=GarminConnect&initialFocus=true&embedWidget=false&generateExtraServiceTicket=true&connectLegalTerms=true';
 
-function extractInput(html: string, name: string) {
-  const re = new RegExp(`<input[^>]+name=["']?${name}["']?[^>]*>`, 'i');
-  const el = html.match(re);
-  if (!el) return null;
-  const val = el[0].match(/value=["']([^"']*)/i);
-  return val ? val[1] : null;
+function extractAllInputs(html: string) {
+  const inputs: Record<string, string> = {};
+  const re = /<input[^>]+name=["']?([^"' ]+)["']?[^>]*value=["']?([^"' ]*)["']?[^>]*>/gi;
+  let match;
+  while ((match = re.exec(html)) !== null) {
+    if (match[1] && match[1] !== 'mfa' && match[1] !== 'mfa-code') {
+      inputs[match[1]] = match[2] || '';
+    }
+  }
+  return inputs;
 }
 
 export async function POST(req: NextRequest) {
@@ -37,14 +41,9 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { action, username, password, mfaCode, state } = body;
     
-    // Improved session restoration for serverless
     let jar: CookieJar;
     if (state?.cookies) {
-      try {
-        jar = CookieJar.fromJSON(state.cookies);
-      } catch (e) {
-        jar = new CookieJar();
-      }
+      jar = CookieJar.fromJSON(state.cookies);
     } else {
       jar = new CookieJar();
     }
@@ -52,7 +51,6 @@ export async function POST(req: NextRequest) {
     const axiosInst = wrapper(axios.create({ 
       jar, 
       withCredentials: true,
-      maxRedirects: 5,
       headers: { 
         'User-Agent': UA,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
@@ -63,20 +61,16 @@ export async function POST(req: NextRequest) {
     if (action === 'login') {
       const signinUrl = `${SSO_BASE}/signin?${LOGIN_QS}`;
       const page1 = await axiosInst.get(signinUrl);
-      const html1 = page1.data;
-
+      
       const loginBody = new URLSearchParams();
       loginBody.set('username', username);
       loginBody.set('password', password);
       loginBody.set('embed', 'true');
       loginBody.set('_eventId', 'submit');
       
-      const csrf = extractInput(html1, '_csrf');
-      const lt = extractInput(html1, 'lt');
-      const execution = extractInput(html1, 'execution');
-      if (csrf) loginBody.set('_csrf', csrf);
-      if (lt) loginBody.set('lt', lt);
-      if (execution) loginBody.set('execution', execution);
+      // Extract all hidden inputs from login page
+      const inputs = extractAllInputs(page1.data);
+      Object.entries(inputs).forEach(([k, v]) => loginBody.set(k, v));
 
       const page2 = await axiosInst.post(signinUrl, loginBody.toString(), {
         headers: {
@@ -92,43 +86,49 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({
           status: 'mfa_required',
           state: {
-            csrf: extractInput(page2.data, '_csrf'),
+            inputs: extractAllInputs(page2.data), // Pass all hidden MFA fields
             cookies: jar.toJSON(),
           }
         });
       }
 
-      return NextResponse.json({ error: 'Login failed. Check credentials or IP block.' }, { status: 401 });
+      return NextResponse.json({ error: 'Login failed. Invalid credentials or IP block.' }, { status: 401 });
     }
 
     if (action === 'verify') {
       const mfaBody = new URLSearchParams();
+      // Send both field names for maximum compatibility
       mfaBody.set('mfa', mfaCode.trim());
+      mfaBody.set('mfa-code', mfaCode.trim());
       mfaBody.set('embed', 'true');
       mfaBody.set('_eventId', 'submit');
-      if (state.csrf) mfaBody.set('_csrf', state.csrf);
+      
+      // Restore hidden fields from previous step
+      if (state.inputs) {
+        Object.entries(state.inputs).forEach(([k, v]) => mfaBody.set(k, v as string));
+      }
 
       const verifyUrl = `${SSO_BASE}/verifyMFA/loginEnterMfaCode?${LOGIN_QS}`;
       const page3 = await axiosInst.post(verifyUrl, mfaBody.toString(), {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
-          'Referer': `${SSO_BASE}/signin?${LOGIN_QS}`, // Referer must be the signin page
+          'Referer': `${SSO_BASE}/signin?${LOGIN_QS}`,
         },
       });
 
       const ticket = page3.data.match(/ticket=([^"&\s]+)/);
       if (ticket) return await performExchange(ticket[1]);
 
-      if (page3.data.includes('mfa-code') || page3.data.includes('error')) {
-        return NextResponse.json({ error: 'Garmin rejected the code. Make sure it is the newest one.' }, { status: 401 });
+      if (page3.data.includes('mfa-code') || page3.data.includes('signin-error')) {
+        return NextResponse.json({ error: 'Garmin rejected the code. Use the latest one and wait 5s before typing.' }, { status: 401 });
       }
 
-      return NextResponse.json({ error: 'Verification failed. Session might have expired.' }, { status: 401 });
+      return NextResponse.json({ error: 'Session expired. Please sign in again.' }, { status: 401 });
     }
 
   } catch (err: any) {
-    console.error('[Auth] Garmin error:', err.response?.status, err.message);
-    return NextResponse.json({ error: `Auth error (${err.response?.status || 500})` }, { status: err.response?.status || 500 });
+    console.error('[Auth] error:', err.message);
+    return NextResponse.json({ error: `Auth failed (${err.response?.status || 500})` }, { status: err.response?.status || 500 });
   }
 }
 
@@ -155,6 +155,6 @@ async function performExchange(ticket: string) {
       }
     });
   } catch (e: any) {
-    return NextResponse.json({ error: 'Exchange failed. Tokens could not be generated.' }, { status: 500 });
+    return NextResponse.json({ error: 'Exchange failed. Please use terminal script.' }, { status: 500 });
   }
 }
