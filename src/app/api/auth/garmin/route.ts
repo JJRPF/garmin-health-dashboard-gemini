@@ -5,7 +5,6 @@ import { CookieJar } from 'tough-cookie';
 
 export const runtime = 'nodejs';
 
-// Reusing the SSO logic from the script but adapted for stateless API
 const SSO = 'https://sso.garmin.com/sso';
 const QS = [
   'service=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F',
@@ -25,7 +24,25 @@ const QS = [
   'connectLegalTerms=true',
 ].join('&');
 
+// Realistic modern browser headers
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
+
+const getHeaders = (referer?: string) => ({
+  'User-Agent': UA,
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Accept-Encoding': 'gzip, deflate, br',
+  'Connection': 'keep-alive',
+  'Upgrade-Insecure-Requests': '1',
+  'Sec-Fetch-Dest': 'document',
+  'Sec-Fetch-Mode': 'navigate',
+  'Sec-Fetch-Site': referer ? 'same-origin' : 'none',
+  'Sec-Fetch-User': '?1',
+  'Sec-Ch-Ua': '"Not/A)Branch";v="8", "Chromium";v="126", "Google Chrome";v="126"',
+  'Sec-Ch-Ua-Mobile': '?0',
+  'Sec-Ch-Ua-Platform': '"Windows"',
+  ...(referer ? { 'Referer': referer } : {}),
+});
 
 function extractInput(html: string, name: string) {
   const re = new RegExp(`<input[^>]+name=["']?${name}["']?[^>]*>`, 'i');
@@ -35,6 +52,8 @@ function extractInput(html: string, name: string) {
   return val ? val[1] : null;
 }
 
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -42,27 +61,35 @@ export async function POST(req: NextRequest) {
 
     const jar = new CookieJar();
     if (state?.cookies) {
+      // Use fromJSON to properly restore the jar state
+      const cookieData = typeof state.cookies === 'string' ? JSON.parse(state.cookies) : state.cookies;
+      // Tough-cookie store might be nested
+      const store = cookieData.cookies || cookieData;
       // @ts-ignore
-      jar.setCookieSync(state.cookies, SSO);
+      jar.setCookieSync(store, SSO);
     }
-    const axiosInst = wrapper(axios.create({ jar, withCredentials: true }));
+    
+    const axiosInst = wrapper(axios.create({ 
+      jar, 
+      withCredentials: true,
+      maxRedirects: 10,
+      validateStatus: (status) => status >= 200 && status < 400,
+    }));
 
     const signinUrl = `${SSO}/signin?${QS}`;
-    const defaultHeaders = {
-      'User-Agent': UA,
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-    };
 
     if (action === 'login') {
-      // Step 1: GET signin page
-      const page1 = await axiosInst.get(signinUrl, { headers: defaultHeaders });
+      // Step 1: Initial GET to establish session
+      const page1 = await axiosInst.get(signinUrl, { headers: getHeaders() });
       const html1 = page1.data;
 
       const csrf1 = extractInput(html1, '_csrf');
       const lt = extractInput(html1, 'lt');
       const execution = extractInput(html1, 'execution');
 
-      // Step 2: POST credentials
+      await sleep(800 + Math.random() * 500); // Human-like delay
+
+      // Step 2: Submit credentials
       const loginBody = new URLSearchParams();
       loginBody.set('username', username);
       loginBody.set('password', password);
@@ -74,10 +101,9 @@ export async function POST(req: NextRequest) {
 
       const page2 = await axiosInst.post(signinUrl, loginBody.toString(), {
         headers: {
-          ...defaultHeaders,
+          ...getHeaders(signinUrl),
           'Content-Type': 'application/x-www-form-urlencoded',
           'Origin': 'https://sso.garmin.com',
-          'Referer': signinUrl,
         },
       });
 
@@ -88,31 +114,28 @@ export async function POST(req: NextRequest) {
         return await exchangeTicket(ticket[1], username, password);
       }
 
-      // Check for MFA
       if (html2.includes('mfa-code') || html2.includes('loginEnterMfaCode')) {
         const csrf2 = extractInput(html2, '_csrf');
         return NextResponse.json({
           status: 'mfa_required',
           state: {
             csrf: csrf2,
-            cookies: jar.serializeSync(),
+            cookies: jar.toJSON(),
           }
         });
       }
 
-      return NextResponse.json({ error: 'Login failed. Check credentials.' }, { status: 401 });
+      return NextResponse.json({ error: 'Login failed. Check credentials or bot detection.' }, { status: 401 });
     }
 
     if (action === 'verify') {
-      // Step 3: Verify MFA
       const mfaBody = new URLSearchParams();
       mfaBody.set('mfa', mfaCode.trim());
       mfaBody.set('embed', 'true');
       mfaBody.set('_eventId', 'submit');
       if (state.csrf) mfaBody.set('_csrf', state.csrf);
 
-      // Restore cookies
-      const restoredJar = CookieJar.fromJSON(JSON.stringify(state.cookies));
+      const restoredJar = CookieJar.fromJSON(state.cookies);
       const mfaAxios = wrapper(axios.create({ jar: restoredJar, withCredentials: true }));
 
       const page3 = await mfaAxios.post(
@@ -120,10 +143,9 @@ export async function POST(req: NextRequest) {
         mfaBody.toString(),
         {
           headers: {
-            ...defaultHeaders,
+            ...getHeaders(signinUrl),
             'Content-Type': 'application/x-www-form-urlencoded',
             'Origin': 'https://sso.garmin.com',
-            'Referer': signinUrl,
           },
         }
       );
@@ -141,7 +163,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
 
   } catch (err: any) {
-    console.error('[Auth] Garmin error:', err.response?.data || err.message);
+    if (err.response?.status === 403) {
+      return NextResponse.json({ 
+        error: 'Garmin blocked the request (403). Try again in 15 minutes or use a different network.' 
+      }, { status: 403 });
+    }
+    console.error('[Auth] Garmin error:', err.message);
     return NextResponse.json({ error: err.message || 'Authentication error' }, { status: 500 });
   }
 }
