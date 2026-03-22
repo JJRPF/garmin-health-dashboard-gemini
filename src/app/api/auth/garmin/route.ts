@@ -4,6 +4,7 @@ import { wrapper } from 'axios-cookiejar-support';
 import { CookieJar } from 'tough-cookie';
 import qs from 'qs';
 import crypto from 'node:crypto';
+// @ts-ignore
 import OAuth from 'oauth-1.0a';
 
 export const runtime = 'nodejs';
@@ -16,7 +17,7 @@ const UA = 'com.garmin.android.apps.connectmobile/4.71.1 (Android 13; Scale/2.25
 const oauth = new OAuth({
   consumer: { key: CONSUMER_KEY, secret: CONSUMER_SECRET },
   signature_method: 'HMAC-SHA1',
-  hash_function(base_string, key) {
+  hash_function(base_string: any, key: any) {
     return crypto.createHmac('sha1', key).update(base_string).digest('base64');
   },
 });
