@@ -21,6 +21,9 @@ const oauth = new OAuth({
   },
 });
 
+const SSO_BASE = 'https://sso.garmin.com/sso';
+const LOGIN_QS = 'service=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F&webhost=https%3A%2F%2Fconnect.garmin.com&source=https%3A%2F%2Fconnect.garmin.com%2Fsignin&gauthHost=https%3A%2F%2Fsso.garmin.com%2Fsso&locale=en_US&id=gauth-widget&clientId=GarminConnect&initialFocus=true&embedWidget=false&generateExtraServiceTicket=true&connectLegalTerms=true';
+
 function extractInput(html: string, name: string) {
   const re = new RegExp(`<input[^>]+name=["']?${name}["']?[^>]*>`, 'i');
   const el = html.match(re);
@@ -34,15 +37,12 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { action, username, password, mfaCode, state } = body;
     
-    // Robust session restoration for Vercel
+    // Improved session restoration for serverless
     let jar: CookieJar;
     if (state?.cookies) {
       try {
-        // tough-cookie 5.x compatible deserialization
-        const cookieData = typeof state.cookies === 'string' ? JSON.parse(state.cookies) : state.cookies;
-        jar = CookieJar.fromJSON(cookieData);
+        jar = CookieJar.fromJSON(state.cookies);
       } catch (e) {
-        console.warn('[Auth] Cookie restoration failed, starting fresh');
         jar = new CookieJar();
       }
     } else {
@@ -52,17 +52,16 @@ export async function POST(req: NextRequest) {
     const axiosInst = wrapper(axios.create({ 
       jar, 
       withCredentials: true,
+      maxRedirects: 5,
       headers: { 
         'User-Agent': UA,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Origin': 'https://sso.garmin.com'
       }
     }));
 
-    const SSO = 'https://sso.garmin.com/sso';
-    const QS = 'service=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F&webhost=https%3A%2F%2Fconnect.garmin.com&source=https%3A%2F%2Fconnect.garmin.com%2Fsignin&gauthHost=https%3A%2F%2Fsso.garmin.com%2Fsso&locale=en_US&id=gauth-widget&clientId=GarminConnect&initialFocus=true&embedWidget=false&generateExtraServiceTicket=true&connectLegalTerms=true';
-
     if (action === 'login') {
-      const signinUrl = `${SSO}/signin?${QS}`;
+      const signinUrl = `${SSO_BASE}/signin?${LOGIN_QS}`;
       const page1 = await axiosInst.get(signinUrl);
       const html1 = page1.data;
 
@@ -86,28 +85,20 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      const html2 = page2.data;
-      const ticket = html2.match(/ticket=([^"&\s]+)/);
+      const ticket = page2.data.match(/ticket=([^"&\s]+)/);
+      if (ticket) return await performExchange(ticket[1]);
 
-      if (ticket) {
-        return await performExchange(ticket[1]);
-      }
-
-      if (html2.includes('mfa-code') || html2.includes('loginEnterMfaCode')) {
+      if (page2.data.includes('mfa-code') || page2.data.includes('loginEnterMfaCode')) {
         return NextResponse.json({
           status: 'mfa_required',
           state: {
-            csrf: extractInput(html2, '_csrf'),
-            cookies: jar.toJSON(), // Standard JSON format
+            csrf: extractInput(page2.data, '_csrf'),
+            cookies: jar.toJSON(),
           }
         });
       }
 
-      if (html2.includes('Invalid user name or password')) {
-        return NextResponse.json({ error: 'Invalid email or password.' }, { status: 401 });
-      }
-
-      return NextResponse.json({ error: 'Garmin rejected the session. Please try again on mobile data.' }, { status: 403 });
+      return NextResponse.json({ error: 'Login failed. Check credentials or IP block.' }, { status: 401 });
     }
 
     if (action === 'verify') {
@@ -117,30 +108,27 @@ export async function POST(req: NextRequest) {
       mfaBody.set('_eventId', 'submit');
       if (state.csrf) mfaBody.set('_csrf', state.csrf);
 
-      const verifyUrl = `${SSO}/verifyMFA/loginEnterMfaCode?${QS}`;
+      const verifyUrl = `${SSO_BASE}/verifyMFA/loginEnterMfaCode?${LOGIN_QS}`;
       const page3 = await axiosInst.post(verifyUrl, mfaBody.toString(), {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
-          'Referer': `${SSO}/signin?${QS}`,
+          'Referer': `${SSO_BASE}/signin?${LOGIN_QS}`, // Referer must be the signin page
         },
       });
 
       const ticket = page3.data.match(/ticket=([^"&\s]+)/);
-      if (ticket) {
-        return await performExchange(ticket[1]);
+      if (ticket) return await performExchange(ticket[1]);
+
+      if (page3.data.includes('mfa-code') || page3.data.includes('error')) {
+        return NextResponse.json({ error: 'Garmin rejected the code. Make sure it is the newest one.' }, { status: 401 });
       }
 
-      if (page3.data.includes('mfa-code')) {
-        return NextResponse.json({ error: 'Invalid MFA code. Use the latest email.' }, { status: 401 });
-      }
-
-      return NextResponse.json({ error: 'Verification session expired. Please sign in again.' }, { status: 401 });
+      return NextResponse.json({ error: 'Verification failed. Session might have expired.' }, { status: 401 });
     }
 
   } catch (err: any) {
     console.error('[Auth] Garmin error:', err.response?.status, err.message);
-    const status = err.response?.status || 500;
-    return NextResponse.json({ error: `Auth failed (${status}): ${err.message}` }, { status });
+    return NextResponse.json({ error: `Auth error (${err.response?.status || 500})` }, { status: err.response?.status || 500 });
   }
 }
 
@@ -167,6 +155,6 @@ async function performExchange(ticket: string) {
       }
     });
   } catch (e: any) {
-    return NextResponse.json({ error: 'Exchange failed. Use terminal script.' }, { status: 500 });
+    return NextResponse.json({ error: 'Exchange failed. Tokens could not be generated.' }, { status: 500 });
   }
 }
