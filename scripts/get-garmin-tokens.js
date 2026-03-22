@@ -1,39 +1,47 @@
 #!/usr/bin/env node
 /**
- * Garmin Token Generator - "The Network Inspector Method"
+ * Garmin Token Generator - Pure HTTP Exchange
  * 
- * Fix: Explicitly fetch OAuth consumer before ticket exchange.
+ * This version bypasses the library's internal logic to provide 
+ * better error reporting and a more robust exchange.
  */
 
 const readline = require('readline');
+const axios = require('axios');
+const qs = require('qs');
+const crypto = require('node:crypto');
+const OAuth = require('oauth-1.0a');
 
 async function prompt(question) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   return new Promise(resolve => rl.question(question, ans => { rl.close(); resolve(ans.trim()); }));
 }
 
+// Garmin's OAuth Consumer Key/Secret (Publicly known for the Connect App)
+const CONSUMER_KEY = '693a9ef8-4962-49cf-b6a4-87b69503646d';
+const CONSUMER_SECRET = 'bc9f54f0-4939-4018-9125-e0d930d44ad0';
+
+const oauth = new OAuth({
+  consumer: { key: CONSUMER_KEY, secret: CONSUMER_SECRET },
+  signature_method: 'HMAC-SHA1',
+  hash_function(base_string, key) {
+    return crypto.createHmac('sha1', key).update(base_string).digest('base64');
+  },
+});
+
 async function main() {
-  console.log('\n🏃 Garmin Token Generator (Network Inspector Method)');
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('\n🏃 Garmin Token Generator (Low-Level Exchange)');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   
   const ticketUrl = 'https://sso.garmin.com/sso/login?service=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F&generateExtraServiceTicket=true';
 
-  console.log('\nSTEP 1: Prepare your Browser');
-  console.log('1. Open Chrome or Safari (Incognito recommended).');
-  console.log('2. Log in to \x1b[36mhttps://connect.garmin.com\x1b[0m normally.');
-  console.log('3. Once logged in, press \x1b[1mF12\x1b[0m (or Cmd+Opt+I) to open DevTools.');
-  console.log('4. Go to the \x1b[1mNetwork\x1b[0m tab.');
-  console.log('5. \x1b[33mCRITICAL:\x1b[0m Check the \x1b[1m"Preserve Log"\x1b[0m checkbox.');
-  
-  console.log('\nSTEP 2: Capture the Ticket');
-  console.log('1. Paste this URL into the SAME browser tab:');
+  console.log('\nSTEP 1: Log in to https://connect.garmin.com in your browser.');
+  console.log('STEP 2: Open DevTools (F12) -> Network tab -> Check "Preserve Log".');
+  console.log('STEP 3: Paste this into the same tab:');
   console.log('\x1b[36m%s\x1b[0m', ticketUrl);
-  console.log('2. The page will redirect back to your dashboard.');
-  console.log('3. In the Network tab, look for a request named \x1b[1m"modern/"\x1b[0m.');
-  console.log('4. Click it and look at the \x1b[1mURL\x1b[0m in the "General" or "Summary" section.');
-  console.log('5. It will contain \x1b[32m?ticket=ST-XXXXX-cas\x1b[0m.');
+  console.log('\nSTEP 4: Look for the "modern/" request and find the ticket.');
 
-  const input = await prompt('\nSTEP 3: Paste the Ticket (ST-...) or the full URL here: ');
+  const input = await prompt('\nSTEP 5: Paste the Ticket (ST-...) or full URL: ');
 
   try {
     let ticket = input;
@@ -43,40 +51,70 @@ async function main() {
     }
 
     if (!ticket || !ticket.startsWith('ST-')) {
-      console.error('\n❌ Error: Invalid ticket format. It should start with "ST-".');
+      console.error('\n❌ Error: Invalid ticket format.');
       process.exit(1);
     }
 
-    console.log('\n✅ Ticket found! Initializing OAuth exchange...');
+    console.log('\n✅ Ticket received. Exchanging for OAuth1...');
 
-    const { GarminConnect } = require('@gooin/garmin-connect');
-    const gc = new GarminConnect({ username: 'user@example.com', password: 'password' });
+    // ─── Phase 1: Ticket -> OAuth1 ──────────────────────────────────────────
+    const preauthUrl = `https://oauth.garmin.com/oauth-service-1.0/oauth/preauthorized?ticket=${ticket}&login-url=https%3A%2F%2Fsso.garmin.com%2Fsso%2Fembed&accepts-mfa-tokens=true`;
     
-    // @ts-ignore - access internal httpClient
-    const client = gc.client;
+    const req1 = { url: preauthUrl, method: 'GET' };
+    const authHeader = oauth.toHeader(oauth.authorize(req1));
 
-    console.log('  [1/2] Fetching OAuth consumer metadata...');
-    await client.fetchOauthConsumer();
+    const res1 = await axios.get(preauthUrl, {
+      headers: {
+        ...authHeader,
+        'User-Agent': 'com.garmin.android.apps.connectmobile',
+      }
+    });
 
-    console.log('  [2/2] Exchanging ticket for tokens...');
-    const oauth1 = await client.getOauth1Token(ticket);
-    await client.exchange(oauth1);
+    const oauth1 = qs.parse(res1.data);
+    if (!oauth1.oauth_token || !oauth1.oauth_token_secret) {
+      throw new Error('Failed to parse OAuth1 tokens from response.');
+    }
 
-    const o1 = JSON.stringify(client.oauth1Token);
-    const o2 = JSON.stringify(client.oauth2Token);
+    console.log('✅ OAuth1 obtained. Exchanging for OAuth2...');
+
+    // ─── Phase 2: OAuth1 -> OAuth2 ──────────────────────────────────────────
+    const exchangeUrl = 'https://oauth.garmin.com/oauth-service-1.0/oauth/exchange/user/2.0';
+    const token = {
+      key: oauth1.oauth_token,
+      secret: oauth1.oauth_token_secret
+    };
+
+    const req2 = { url: exchangeUrl, method: 'POST' };
+    // Garmin requires the auth params in the query string for this specific POST
+    const authData = oauth.authorize(req2, token);
+    const finalUrl = `${exchangeUrl}?${qs.stringify(authData)}`;
+
+    const res2 = await axios.post(finalUrl, null, {
+      headers: {
+        'User-Agent': 'com.garmin.android.apps.connectmobile',
+        'Content-Type': 'application/x-www-form-urlencoded',
+      }
+    });
+
+    const oauth2 = res2.data;
 
     console.log('\n' + '━'.repeat(65));
     console.log('🚀 SUCCESS! PASTE THESE INTO YOUR APP SETTINGS:');
     console.log('━'.repeat(65));
     console.log('\nGARMIN_OAUTH1:');
-    console.log('\x1b[32m%s\x1b[0m', o1);
+    console.log('\x1b[32m%s\x1b[0m', JSON.stringify(oauth1));
     console.log('\nGARMIN_OAUTH2:');
-    console.log('\x1b[32m%s\x1b[0m', o2);
+    console.log('\x1b[32m%s\x1b[0m', JSON.stringify(oauth2));
     console.log('\n' + '━'.repeat(65));
-    console.log('Paste these into Settings -> Advanced / Manual Tokens.\n');
 
   } catch (err) {
-    console.error('\n❌ Error during exchange:', err.message);
+    console.error('\n❌ Error during exchange:');
+    if (err.response) {
+      console.error(`Status: ${err.response.status}`);
+      console.error(`Data: ${JSON.stringify(err.response.data)}`);
+    } else {
+      console.error(err.message);
+    }
     process.exit(1);
   }
 }
