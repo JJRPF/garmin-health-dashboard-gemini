@@ -34,12 +34,19 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { action, username, password, mfaCode, state } = body;
     
-    console.log(`[Auth] Action: ${action} for ${username || 'current session'}`);
-
-    const jar = new CookieJar();
+    // Robust session restoration for Vercel
+    let jar: CookieJar;
     if (state?.cookies) {
-      // @ts-ignore - deserialize full jar state
-      jar.setCookieSync(state.cookies, 'https://sso.garmin.com');
+      try {
+        // tough-cookie 5.x compatible deserialization
+        const cookieData = typeof state.cookies === 'string' ? JSON.parse(state.cookies) : state.cookies;
+        jar = CookieJar.fromJSON(cookieData);
+      } catch (e) {
+        console.warn('[Auth] Cookie restoration failed, starting fresh');
+        jar = new CookieJar();
+      }
+    } else {
+      jar = new CookieJar();
     }
 
     const axiosInst = wrapper(axios.create({ 
@@ -48,7 +55,6 @@ export async function POST(req: NextRequest) {
       headers: { 
         'User-Agent': UA,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
       }
     }));
 
@@ -88,22 +94,20 @@ export async function POST(req: NextRequest) {
       }
 
       if (html2.includes('mfa-code') || html2.includes('loginEnterMfaCode')) {
-        console.log('[Auth] MFA Required');
         return NextResponse.json({
           status: 'mfa_required',
           state: {
             csrf: extractInput(html2, '_csrf'),
-            cookies: jar.serializeSync(),
+            cookies: jar.toJSON(), // Standard JSON format
           }
         });
       }
 
-      // Detect "invalid credentials" vs "bot block"
-      if (html2.includes('Invalid user name or password') || html2.includes('signin-error')) {
+      if (html2.includes('Invalid user name or password')) {
         return NextResponse.json({ error: 'Invalid email or password.' }, { status: 401 });
       }
 
-      return NextResponse.json({ error: 'Garmin rejected the request. This usually means bot detection (403). Try mobile data or wait 15 min.' }, { status: 403 });
+      return NextResponse.json({ error: 'Garmin rejected the session. Please try again on mobile data.' }, { status: 403 });
     }
 
     if (action === 'verify') {
@@ -127,35 +131,26 @@ export async function POST(req: NextRequest) {
       }
 
       if (page3.data.includes('mfa-code')) {
-        return NextResponse.json({ error: 'The code was rejected. Please use the most recent email code.' }, { status: 401 });
+        return NextResponse.json({ error: 'Invalid MFA code. Use the latest email.' }, { status: 401 });
       }
 
-      return NextResponse.json({ error: 'Session expired. Please sign in again.' }, { status: 401 });
+      return NextResponse.json({ error: 'Verification session expired. Please sign in again.' }, { status: 401 });
     }
 
   } catch (err: any) {
-    console.error('[Auth] Raw Error:', err.response?.status, err.message);
+    console.error('[Auth] Garmin error:', err.response?.status, err.message);
     const status = err.response?.status || 500;
-    
-    if (status === 403) {
-      return NextResponse.json({ error: 'Garmin Blocked (403). Please use your terminal script instead.' }, { status: 403 });
-    }
-    
-    return NextResponse.json({ 
-      error: `Auth error (${status}): ${err.message || 'Unknown'}` 
-    }, { status });
+    return NextResponse.json({ error: `Auth failed (${status}): ${err.message}` }, { status });
   }
 }
 
 async function performExchange(ticket: string) {
   try {
-    // Phase 1: Ticket -> OAuth1
     const preauthUrl = `https://connectapi.garmin.com/oauth-service/oauth/preauthorized?ticket=${ticket}&login-url=https%3A%2F%2Fsso.garmin.com%2Fsso%2Fembed&accepts-mfa-tokens=true`;
     const authHeader1 = oauth.toHeader(oauth.authorize({ url: preauthUrl, method: 'GET' }));
     const res1 = await axios.get(preauthUrl, { headers: { ...authHeader1, 'User-Agent': UA } });
     const oauth1 = qs.parse(res1.data);
 
-    // Phase 2: OAuth1 -> OAuth2
     const exchangeUrl = 'https://connectapi.garmin.com/oauth-service/oauth/exchange/user/2.0';
     const token = { key: oauth1.oauth_token as string, secret: oauth1.oauth_token_secret as string };
     const authData = oauth.authorize({ url: exchangeUrl, method: 'POST' }, token);
@@ -172,7 +167,6 @@ async function performExchange(ticket: string) {
       }
     });
   } catch (e: any) {
-    console.error('[Auth] Exchange failed:', e.message);
-    return NextResponse.json({ error: 'Token exchange failed. Please use terminal script.' }, { status: 500 });
+    return NextResponse.json({ error: 'Exchange failed. Use terminal script.' }, { status: 500 });
   }
 }
