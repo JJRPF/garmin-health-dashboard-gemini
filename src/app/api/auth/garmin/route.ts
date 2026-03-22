@@ -9,7 +9,6 @@ import OAuth from 'oauth-1.0a';
 
 export const runtime = 'nodejs';
 
-// Garth / Android GCM Credentials
 const CONSUMER_KEY = 'fc3e99d2-118c-44b8-8ae3-03370dde24c0';
 const CONSUMER_SECRET = 'E08WAR897WEy2knn7aFBrvegVAf0AFdWBBF';
 const UA = 'com.garmin.android.apps.connectmobile/4.71.1 (Android 13; Scale/2.25)';
@@ -17,7 +16,7 @@ const UA = 'com.garmin.android.apps.connectmobile/4.71.1 (Android 13; Scale/2.25
 const oauth = new OAuth({
   consumer: { key: CONSUMER_KEY, secret: CONSUMER_SECRET },
   signature_method: 'HMAC-SHA1',
-  hash_function(base_string: any, key: any) {
+  hash_function(base_string: string, key: string) {
     return crypto.createHmac('sha1', key).update(base_string).digest('base64');
   },
 });
@@ -34,15 +33,29 @@ export async function POST(req: NextRequest) {
   try {
     const { action, username, password, mfaCode, state } = await req.json();
     
-    const jar = state?.cookies ? CookieJar.fromJSON(JSON.stringify(state.cookies)) : new CookieJar();
-    const axiosInst = wrapper(axios.create({ jar, withCredentials: true }));
+    // Improved cookie handling for serverless
+    const jar = new CookieJar();
+    if (state?.cookies) {
+      const cookieStore = typeof state.cookies === 'string' ? JSON.parse(state.cookies) : state.cookies;
+      // Reconstruct jar from serialized store
+      for (const cookie of (cookieStore.cookies || [])) {
+        jar.setCookieSync(CookieJar.deserializeSync(cookie).toString(), 'https://sso.garmin.com');
+      }
+    }
+
+    const axiosInst = wrapper(axios.create({ 
+      jar, 
+      withCredentials: true,
+      headers: { 'User-Agent': UA }
+    }));
 
     const SSO = 'https://sso.garmin.com/sso';
     const QS = 'service=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F&webhost=https%3A%2F%2Fconnect.garmin.com&source=https%3A%2F%2Fconnect.garmin.com%2Fsignin&gauthHost=https%3A%2F%2Fsso.garmin.com%2Fsso&locale=en_US&id=gauth-widget&clientId=GarminConnect&initialFocus=true&embedWidget=false&generateExtraServiceTicket=true&connectLegalTerms=true';
 
     if (action === 'login') {
+      console.log(`[Auth] Starting login for ${username}`);
       const signinUrl = `${SSO}/signin?${QS}`;
-      const page1 = await axiosInst.get(signinUrl, { headers: { 'User-Agent': UA } });
+      const page1 = await axiosInst.get(signinUrl);
       const html1 = page1.data;
 
       const loginBody = new URLSearchParams();
@@ -61,7 +74,6 @@ export async function POST(req: NextRequest) {
       const page2 = await axiosInst.post(signinUrl, loginBody.toString(), {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded',
-          'User-Agent': UA,
           'Referer': signinUrl,
         },
       });
@@ -78,50 +90,48 @@ export async function POST(req: NextRequest) {
           status: 'mfa_required',
           state: {
             csrf: extractInput(html2, '_csrf'),
-            cookies: jar.toJSON(),
+            cookies: jar.serializeSync(), // Better serialization
           }
         });
       }
 
-      return NextResponse.json({ error: 'Login failed. Check credentials.' }, { status: 401 });
+      return NextResponse.json({ error: 'Login failed. Invalid credentials or temporary block.' }, { status: 401 });
     }
 
     if (action === 'verify') {
+      console.log(`[Auth] Verifying MFA code for session...`);
       const mfaBody = new URLSearchParams();
       mfaBody.set('mfa', mfaCode.trim());
       mfaBody.set('embed', 'true');
       mfaBody.set('_eventId', 'submit');
       if (state.csrf) mfaBody.set('_csrf', state.csrf);
 
-      const page3 = await axiosInst.post(
-        `${SSO}/verifyMFA/loginEnterMfaCode?${QS}`,
-        mfaBody.toString(),
-        {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'User-Agent': UA,
-            'Referer': `${SSO}/signin?${QS}`,
-          },
-        }
-      );
+      const verifyUrl = `${SSO}/verifyMFA/loginEnterMfaCode?${QS}`;
+      const page3 = await axiosInst.post(verifyUrl, mfaBody.toString(), {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Referer': `${SSO}/signin?${QS}`,
+        },
+      });
 
       const ticket = page3.data.match(/ticket=([^"&\s]+)/);
       if (ticket) {
         return await performExchange(ticket[1]);
       }
 
-      return NextResponse.json({ error: 'Invalid or expired MFA code.' }, { status: 401 });
+      // If we land back on MFA page, the code was wrong
+      if (page3.data.includes('mfa-code')) {
+        return NextResponse.json({ error: 'The code was rejected by Garmin. Please try the latest code.' }, { status: 401 });
+      }
+
+      return NextResponse.json({ error: 'MFA session expired. Please sign in again.' }, { status: 401 });
     }
 
   } catch (err: any) {
     console.error('[Auth] Garmin error:', err.response?.status, err.message);
-    if (err.response?.status === 403) {
-      return NextResponse.json({ error: 'Blocked by Garmin (403). Try again later.' }, { status: 403 });
-    }
-    if (err.response?.status === 429) {
-      return NextResponse.json({ error: 'Too many requests (429). Wait 15 minutes.' }, { status: 429 });
-    }
-    return NextResponse.json({ error: 'Authentication failed' }, { status: 500 });
+    const status = err.response?.status || 500;
+    const message = status === 429 ? 'Too many attempts. Wait 15 mins.' : 'Authentication error';
+    return NextResponse.json({ error: message }, { status });
   }
 }
 
