@@ -1,173 +1,73 @@
 #!/usr/bin/env node
 /**
- * Run this script ONCE locally to get long-lived Garmin OAuth tokens.
- * Uses the Mobile App headers to bypass strict Web SSO bot detection.
+ * Semi-Manual Garmin Token Generator
+ * 
+ * 1. Opens the official Garmin login in your browser.
+ * 2. You log in manually (bypassing all bot detection).
+ * 3. You paste the resulting URL back here.
+ * 4. This script exchanges the ticket for long-lived OAuth tokens.
  */
 
 const readline = require('readline');
-const axios = require('axios');
-const { wrapper } = require('axios-cookiejar-support');
-const { CookieJar } = require('tough-cookie');
 
-// ── Prompt helper ────────────────────────────────────────────────────────────
-async function prompt(question, hidden = false) {
+async function prompt(question) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  if (hidden && process.stdout.isTTY) {
-    process.stdout.write(question);
-    process.stdin.setRawMode(true);
-    return new Promise(resolve => {
-      let input = '';
-      process.stdin.on('data', (ch) => {
-        ch = ch.toString();
-        if (ch === '\r' || ch === '\n') {
-          process.stdin.setRawMode(false);
-          process.stdout.write('\n');
-          rl.close();
-          resolve(input);
-        } else if (ch === '\u0003') {
-          process.exit();
-        } else if (ch === '\u007f') {
-          input = input.slice(0, -1);
-        } else {
-          input += ch;
-        }
-      });
-      process.stdin.resume();
-    });
-  }
   return new Promise(resolve => rl.question(question, ans => { rl.close(); resolve(ans.trim()); }));
 }
 
-function extractInput(html, name) {
-  const re = new RegExp(`<input[^>]+name=["']?${name}["']?[^>]*>`, 'i');
-  const el = html.match(re);
-  if (!el) return null;
-  const val = el[0].match(/value=["']([^"']*)/i);
-  return val ? val[1] : null;
-}
-
 async function main() {
-  console.log('\n🏃 Garmin Token Generator');
-  console.log('───────────────────────────');
+  console.log('\n🏃 Garmin Semi-Manual Token Generator');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+  console.log('This method is 100% reliable because YOU perform the login in your browser.');
+  
+  const loginUrl = 'https://sso.garmin.com/sso/signin?service=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F&webhost=https%3A%2F%2Fconnect.garmin.com&source=https%3A%2F%2Fconnect.garmin.com%2Fsignin&gauthHost=https%3A%2F%2Fsso.garmin.com%2Fsso&locale=en_US&id=gauth-widget&clientId=GarminConnect&initialFocus=true&embedWidget=false&generateExtraServiceTicket=true&connectLegalTerms=true';
 
-  const user = await prompt('📧  Garmin Email: ');
-  const pass = await prompt('🔑  Garmin Password: ', true);
+  console.log('\nSTEP 1: Open this URL in your browser and log in:');
+  console.log('\x1b[36m%s\x1b[0m', loginUrl);
+  
+  console.log('\nSTEP 2: After logging in, you will see a BLANK PAGE.');
+  console.log('Copy the ENTIRE URL from the address bar (it starts with "https://connect.garmin.com/modern/?ticket=...")');
 
-  if (!user || !pass) {
-    console.error('❌ Email and password required');
-    process.exit(1);
-  }
-
-  const jar = new CookieJar();
-  const axiosInst = wrapper(axios.create({ jar, withCredentials: true }));
-
-  // Mobile App SSO Parameters
-  const SSO = 'https://sso.garmin.com/sso';
-  const QS = [
-    'service=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F',
-    'webhost=https%3A%2F%2Fconnect.garmin.com',
-    'source=https%3A%2F%2Fconnect.garmin.com%2Fsignin',
-    'gauthHost=https%3A%2F%2Fsso.garmin.com%2Fsso',
-    'locale=en_US',
-    'id=gauth-widget',
-    'clientId=GarminConnect',
-    'initialFocus=true',
-    'embedWidget=false',
-    'generateExtraServiceTicket=true',
-    'connectLegalTerms=true',
-  ].join('&');
-
-  // Use the Mobile App User Agent
-  const UA = 'com.garmin.android.apps.connectmobile/4.71.1 (Android 13; Scale/2.25)';
+  const fullUrl = await prompt('\nSTEP 3: Paste the copied URL here: ');
 
   try {
-    console.log('\n🔐  Attempting login...');
-    const signinUrl = `${SSO}/signin?${QS}`;
-    
-    const page1 = await axiosInst.get(signinUrl, { headers: { 'User-Agent': UA } });
-    const html1 = page1.data;
-
-    const csrf1 = extractInput(html1, '_csrf');
-    const lt = extractInput(html1, 'lt');
-    const execution = extractInput(html1, 'execution');
-
-    const loginBody = new URLSearchParams();
-    loginBody.set('username', user);
-    loginBody.set('password', pass);
-    loginBody.set('embed', 'true');
-    loginBody.set('_eventId', 'submit');
-    if (csrf1) loginBody.set('_csrf', csrf1);
-    if (lt) loginBody.set('lt', lt);
-    if (execution) loginBody.set('execution', execution);
-
-    const page2 = await axiosInst.post(signinUrl, loginBody.toString(), {
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'User-Agent': UA,
-        'Referer': signinUrl,
-      },
-    });
-
-    const html2 = page2.data;
-    let ticket = html2.match(/ticket=([^"&\s]+)/);
-
-    if (!ticket && (html2.includes('mfa-code') || html2.includes('loginEnterMfaCode'))) {
-      console.log('📧  MFA required. Check your email for a code.');
-      const mfaCode = await prompt('\n🔢  Enter the 6-digit code: ');
-      
-      const csrf2 = extractInput(html2, '_csrf');
-      const mfaBody = new URLSearchParams();
-      mfaBody.set('mfa', mfaCode.trim());
-      mfaBody.set('embed', 'true');
-      mfaBody.set('_eventId', 'submit');
-      if (csrf2) mfaBody.set('_csrf', csrf2);
-
-      const page3 = await axiosInst.post(
-        `${SSO}/verifyMFA/loginEnterMfaCode?${QS}`,
-        mfaBody.toString(),
-        {
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'User-Agent': UA,
-            'Referer': signinUrl,
-          },
-        }
-      );
-      ticket = page3.data.match(/ticket=([^"&\s]+)/);
-    }
+    const url = new URL(fullUrl);
+    const ticket = url.searchParams.get('ticket');
 
     if (!ticket) {
-      throw new Error('Could not obtain login ticket. Check credentials or if Garmin is blocking your IP.');
+      console.error('\n❌ Error: Could not find a "ticket" in that URL. Did you copy the whole thing?');
+      process.exit(1);
     }
 
-    console.log('✅  Login successful. Exchanging tokens...');
+    console.log('\n✅ Ticket found! Exchanging for tokens...');
+
+    // We need the @gooin/garmin-connect package for the exchange
     const { GarminConnect } = require('@gooin/garmin-connect');
-    const gc = new GarminConnect({ username: user, password: pass });
     
-    // @ts-ignore
-    const oauth1 = await gc.client.getOauth1Token(ticket[1]);
+    // We use dummy credentials because the ticket is already authenticated
+    const gc = new GarminConnect({ username: 'user@example.com', password: 'password' });
+    
+    // @ts-ignore - access internal httpClient
+    const oauth1 = await gc.client.getOauth1Token(ticket);
     // @ts-ignore
     await gc.client.exchange(oauth1);
 
     const o1 = JSON.stringify(gc.client.oauth1Token);
     const o2 = JSON.stringify(gc.client.oauth2Token);
 
-    console.log('\n' + '━'.repeat(50));
-    console.log('🚀 SUCCESS! COPY THESE TWO STRINGS:');
-    console.log('━'.repeat(50));
+    console.log('\n' + '━'.repeat(60));
+    console.log('🚀 SUCCESS! COPY THESE TWO STRINGS INTO YOUR APP SETTINGS:');
+    console.log('━'.repeat(60));
     console.log('\nGARMIN_OAUTH1:');
-    console.log(o1);
+    console.log('\x1b[32m%s\x1b[0m', o1);
     console.log('\nGARMIN_OAUTH2:');
-    console.log(o2);
-    console.log('\n' + '━'.repeat(50));
-    console.log('Paste them into your app settings under "Advanced / Manual Tokens".\n');
+    console.log('\x1b[32m%s\x1b[0m', o2);
+    console.log('\n' + '━'.repeat(60));
+    console.log('Paste these into Settings -> Advanced / Manual Tokens.\n');
 
   } catch (err) {
-    if (err.response?.status === 403) {
-      console.error('\n❌ Garmin 403: Your IP is temporarily blocked. Try again in 1 hour or use a phone hotspot.');
-    } else {
-      console.error('\n❌ Error:', err.message);
-    }
+    console.error('\n❌ Error during exchange:', err.message);
+    console.log('Try running the script again. If it still fails, your Vercel IP might be blocked from the exchange API.');
     process.exit(1);
   }
 }
