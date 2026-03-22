@@ -2,7 +2,7 @@
 /**
  * Garmin Token Generator - "The Network Inspector Method"
  * 
- * This is the ultimate method to get tokens when redirects are failing.
+ * Fix: Explicitly fetch OAuth consumer before ticket exchange.
  */
 
 const readline = require('readline');
@@ -47,19 +47,23 @@ async function main() {
       process.exit(1);
     }
 
-    console.log('\n✅ Ticket found: ' + ticket.slice(0, 15) + '...');
-    console.log('Exchanging for long-lived OAuth tokens...');
+    console.log('\n✅ Ticket found! Initializing OAuth exchange...');
 
     const { GarminConnect } = require('@gooin/garmin-connect');
     const gc = new GarminConnect({ username: 'user@example.com', password: 'password' });
     
-    // @ts-ignore
-    const oauth1 = await gc.client.getOauth1Token(ticket);
-    // @ts-ignore
-    await gc.client.exchange(oauth1);
+    // @ts-ignore - access internal httpClient
+    const client = gc.client;
 
-    const o1 = JSON.stringify(gc.client.oauth1Token);
-    const o2 = JSON.stringify(gc.client.oauth2Token);
+    console.log('  [1/2] Fetching OAuth consumer metadata...');
+    await client.fetchOauthConsumer();
+
+    console.log('  [2/2] Exchanging ticket for tokens...');
+    const oauth1 = await client.getOauth1Token(ticket);
+    await client.exchange(oauth1);
+
+    const o1 = JSON.stringify(client.oauth1Token);
+    const o2 = JSON.stringify(client.oauth2Token);
 
     console.log('\n' + '━'.repeat(65));
     console.log('🚀 SUCCESS! PASTE THESE INTO YOUR APP SETTINGS:');
@@ -73,7 +77,6 @@ async function main() {
 
   } catch (err) {
     console.error('\n❌ Error during exchange:', err.message);
-    console.log('Make sure you are not using a VPN or that your Vercel IP isn\'t blocked.');
     process.exit(1);
   }
 }
