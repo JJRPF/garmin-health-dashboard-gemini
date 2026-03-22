@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Garmin Auth Helper</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #080808; color: #f5f5f5; font-family: -apple-system, system-ui, sans-serif; }
+        .card { background-color: #111111; border: 1px border #1f1f1f; border-radius: 1rem; padding: 1.5rem; }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4">
+    <div class="max-w-md w-full space-y-6">
+        <div class="text-center">
+            <h1 class="text-2xl font-black text-blue-500 mb-2">Garmin Auth Helper</h1>
+            <p class="text-xs text-gray-400">Use this tool if the app gives you a 403 error.</p>
+        </div>
+
+        <div class="card space-y-6">
+            <div>
+                <h2 class="text-sm font-bold uppercase tracking-widest text-gray-500 mb-4">Step 1: Get Login Ticket</h2>
+                <p class="text-xs text-gray-400 mb-4">Click the button below to log in on the official Garmin site. After logging in, you will see a <b>blank page</b>. Copy the entire URL of that blank page.</p>
+                <a href="https://sso.garmin.com/sso/signin?service=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F&webhost=https%3A%2F%2Fconnect.garmin.com&source=https%3A%2F%2Fconnect.garmin.com%2Fsignin&gauthHost=https%3A%2F%2Fsso.garmin.com%2Fsso&locale=en_US&id=gauth-widget&clientId=GarminConnect&initialFocus=true&embedWidget=false&generateExtraServiceTicket=true&connectLegalTerms=true" 
+                   target="_blank"
+                   class="block w-full py-4 bg-blue-600 hover:bg-blue-500 text-center font-bold rounded-xl transition-all">
+                    Login on Garmin.com
+                </a>
+            </div>
+
+            <div class="pt-6 border-t border-gray-800">
+                <h2 class="text-sm font-bold uppercase tracking-widest text-gray-500 mb-4">Step 2: Paste the URL</h2>
+                <input type="text" id="ticketUrl" 
+                       placeholder="https://connect.garmin.com/modern/?ticket=ST-..."
+                       class="w-full bg-black border border-gray-800 rounded-xl px-4 py-3 text-xs focus:border-blue-500 outline-none mb-4">
+                
+                <button onclick="extractTicket()" class="w-full py-3 bg-gray-800 hover:bg-gray-700 text-xs font-bold rounded-xl">
+                    Extract Ticket & Continue
+                </button>
+            </div>
+
+            <div id="resultArea" class="hidden pt-6 border-t border-gray-800 animate-fade-in">
+                <h2 class="text-sm font-bold uppercase tracking-widest text-gray-500 mb-4">Step 3: Tokens</h2>
+                <p class="text-[10px] text-gray-500 mb-4">Copy these into your App Settings under "Manual Tokens".</p>
+                <div class="space-y-4">
+                    <div>
+                        <label class="text-[9px] font-bold text-gray-600 uppercase">OAuth1</label>
+                        <textarea id="oauth1" readonly class="w-full bg-black border border-gray-800 rounded-lg p-2 text-[10px] font-mono h-16 resize-none"></textarea>
+                    </div>
+                    <div>
+                        <label class="text-[9px] font-bold text-gray-600 uppercase">OAuth2</label>
+                        <textarea id="oauth2" readonly class="w-full bg-black border border-gray-800 rounded-lg p-2 text-[10px] font-mono h-16 resize-none"></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <p class="text-center text-[10px] text-gray-600">
+            This tool is safe. It only uses your browser to get a temporary ticket from Garmin.
+        </p>
+    </div>
+
+    <script>
+        async function extractTicket() {
+            const urlStr = document.getElementById('ticketUrl').value;
+            const url = new URL(urlStr);
+            const ticket = url.searchParams.get('ticket');
+
+            if (!ticket) {
+                alert("Could not find a 'ticket' in that URL. Make sure you copied the whole URL.");
+                return;
+            }
+
+            const btn = event.target;
+            const originalText = btn.innerText;
+            btn.innerText = "Exchanging with your app...";
+            btn.disabled = true;
+
+            try {
+                // We use the current domain to call the API
+                const res = await fetch('/api/auth/garmin', {
+                    method: 'POST',
+                    body: JSON.stringify({ action: 'exchange', ticket })
+                });
+                const data = await res.json();
+
+                if (data.status === 'success') {
+                    document.getElementById('resultArea').classList.remove('hidden');
+                    document.getElementById('oauth1').value = JSON.stringify(data.tokens.oauth1);
+                    document.getElementById('oauth2').value = JSON.stringify(data.tokens.oauth2);
+                    btn.innerText = "✅ Success!";
+                } else {
+                    throw new Error(data.error);
+                }
+            } catch (e) {
+                alert("Error: " + e.message + "\n\nIf your Vercel IP is blocked, this exchange will also fail. In that case, use the terminal script.");
+                btn.innerText = originalText;
+                btn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>
