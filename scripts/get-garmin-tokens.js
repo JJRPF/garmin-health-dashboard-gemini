@@ -1,140 +1,195 @@
 #!/usr/bin/env node
 /**
- * Garmin Token Generator - Multi-Key Brute Force Exchange
+ * Garmin Token Generator - Garth-Style Flow
  * 
- * Automatically tries multiple consumer keys to find the one that matches 
- * your account's region/type.
+ * This script emulates the 'garth' Python library authentication flow.
+ * It is performed entirely in the terminal to avoid "one-time ticket" 
+ * consumption issues in the browser.
  */
 
 const readline = require('readline');
 const axios = require('axios');
+const { wrapper } = require('axios-cookiejar-support');
+const { CookieJar } = require('tough-cookie');
 const qs = require('qs');
 const crypto = require('node:crypto');
 const OAuth = require('oauth-1.0a');
 
-async function prompt(question) {
+async function prompt(question, hidden = false) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  if (hidden && process.stdout.isTTY) {
+    process.stdout.write(question);
+    process.stdin.setRawMode(true);
+    return new Promise(resolve => {
+      let input = '';
+      process.stdin.on('data', (ch) => {
+        ch = ch.toString();
+        if (ch === '\r' || ch === '\n') {
+          process.stdin.setRawMode(false);
+          process.stdout.write('\n');
+          rl.close();
+          resolve(input);
+        } else if (ch === '\u0003') {
+          process.exit();
+        } else if (ch === '\u007f') {
+          input = input.slice(0, -1);
+        } else {
+          input += ch;
+        }
+      });
+      process.stdin.resume();
+    });
+  }
   return new Promise(resolve => rl.question(question, ans => { rl.close(); resolve(ans.trim()); }));
 }
 
-// Known Consumer Keys extracted from various Garmin apps
-const KNOWN_KEYS = [
-  { name: 'Android GCM (Primary)', key: 'fc3e99d2-118c-44b8-8ae3-03370dde24c0', secret: 'E08WAR897WEy2knn7aFBrvegVAf0AFdWBBF' },
-  { name: 'Garmin Connect (Web)', key: '693a9ef8-4962-49cf-b6a4-87b69503646d', secret: 'bc9f54f0-4939-4018-9125-e0d930d44ad0' },
-  { name: 'iOS Connect (Legacy)', key: 'ad39402c-5a06-4e71-8267-d4f3d0cf3f2d', secret: 'A6956944BB4D4070AA2B7CFE3CC5697EE' }
-];
-
-function getOAuth(consumer) {
-  return new OAuth({
-    consumer: { key: consumer.key, secret: consumer.secret },
-    signature_method: 'HMAC-SHA1',
-    hash_function(base_string, key) {
-      return crypto.createHmac('sha1', key).update(base_string).digest('base64');
-    },
-  });
+function extractInput(html, name) {
+  const re = new RegExp(`<input[^>]+name=["']?${name}["']?[^>]*>`, 'i');
+  const el = html.match(re);
+  if (!el) return null;
+  const val = el[0].match(/value=["']([^"']*)/i);
+  return val ? val[1] : null;
 }
 
+// GARTH / GCM ANDROID CREDENTIALS
+const CONSUMER_KEY = 'fc3e99d2-118c-44b8-8ae3-03370dde24c0';
+const CONSUMER_SECRET = 'E08WAR897WEy2knn7aFBrvegVAf0AFdWBBF';
+
+const oauth = new OAuth({
+  consumer: { key: CONSUMER_KEY, secret: CONSUMER_SECRET },
+  signature_method: 'HMAC-SHA1',
+  hash_function(base_string, key) {
+    return crypto.createHmac('sha1', key).update(base_string).digest('base64');
+  },
+});
+
+const UA = 'com.garmin.android.apps.connectmobile/4.71.1 (Android 13; Scale/2.25)';
+
 async function main() {
-  console.log('\n🏃 Garmin Token Generator (Multi-Key Exchange)');
-  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-  
-  const ticketUrl = 'https://sso.garmin.com/sso/login?service=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F&generateExtraServiceTicket=true';
+  console.log('\n🏃 Garmin Token Generator (Garth-Style)');
+  console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
-  console.log('\nSTEP 1: Log in to https://connect.garmin.com in your browser.');
-  console.log('STEP 2: Open DevTools (F12) -> Network tab -> Check "Preserve Log".');
-  console.log('STEP 3: Paste this into the same tab:');
-  console.log('\x1b[36m%s\x1b[0m', ticketUrl);
-  console.log('\nSTEP 4: Look for the "modern/" request and find the ticket (ST-...).');
+  const user = await prompt('📧  Garmin Email: ');
+  const pass = await prompt('🔑  Garmin Password: ', true);
 
-  const input = await prompt('\nSTEP 5: Paste the Ticket (ST-...) or full URL: ');
-
-  let ticket = input;
-  if (input.includes('ticket=')) {
-    const match = input.match(/ticket=(ST-[A-Za-z0-9-]+-cas)/);
-    ticket = match ? match[1] : null;
-  }
-
-  if (!ticket || !ticket.startsWith('ST-')) {
-    console.error('\n❌ Error: Invalid ticket format.');
+  if (!user || !pass) {
+    console.error('❌ Email and password required');
     process.exit(1);
   }
 
-  console.log('\n✅ Ticket received. Testing consumer keys...');
+  const jar = new CookieJar();
+  const axiosInst = wrapper(axios.create({ jar, withCredentials: true }));
 
-  let oauth1 = null;
-  let workingConsumer = null;
+  const SSO = 'https://sso.garmin.com/sso';
+  const QS = [
+    'service=https%3A%2F%2Fconnect.garmin.com%2Fmodern%2F',
+    'webhost=https%3A%2F%2Fconnect.garmin.com',
+    'source=https%3A%2F%2Fconnect.garmin.com%2Fsignin',
+    'gauthHost=https%3A%2F%2Fsso.garmin.com%2Fsso',
+    'locale=en_US',
+    'id=gauth-widget',
+    'clientId=GarminConnect',
+    'initialFocus=true',
+    'embedWidget=false',
+    'generateExtraServiceTicket=true',
+    'connectLegalTerms=true',
+  ].join('&');
 
-  for (const consumer of KNOWN_KEYS) {
-    process.stdout.write(`  Trying ${consumer.name}... `);
-    
-    try {
-      const oauth = getOAuth(consumer);
-      const url = `https://connectapi.garmin.com/oauth-service/oauth/preauthorized?ticket=${ticket}&login-url=https%3A%2F%2Fsso.garmin.com%2Fsso%2Fembed&accepts-mfa-tokens=true`;
-      
-      const req = { url, method: 'GET' };
-      const authHeader = oauth.toHeader(oauth.authorize(req));
-
-      const res = await axios.get(url, {
-        headers: {
-          ...authHeader,
-          'User-Agent': 'com.garmin.android.apps.connectmobile',
-        }
-      });
-
-      oauth1 = qs.parse(res.data);
-      workingConsumer = consumer;
-      console.log('\x1b[32mSUCCESS!\x1b[0m');
-      break;
-    } catch (err) {
-      if (err.response?.status === 401) {
-        console.log('\x1b[31mRejected\x1b[0m');
-      } else {
-        console.log(`\x1b[31mError (${err.response?.status || err.message})\x1b[0m`);
-      }
-    }
-  }
-
-  if (!oauth1 || !workingConsumer) {
-    console.error('\n❌ All exchange attempts failed.');
-    console.log('This usually means the ticket was already used, expired, or Garmin is rate-limiting you.');
-    console.log('Wait 10 minutes, get a NEW ticket, and try again.');
-    process.exit(1);
-  }
+  const signinUrl = `${SSO}/signin?${QS}`;
 
   try {
-    console.log('\n✅ OAuth1 obtained. Exchanging for OAuth2...');
-    
-    const exchangeUrl = 'https://connectapi.garmin.com/oauth-service/oauth/exchange/user/2.0';
-    const oauth = getOAuth(workingConsumer);
-    const token = {
-      key: oauth1.oauth_token,
-      secret: oauth1.oauth_token_secret
-    };
+    console.log('\n🔐  Step 1: Authenticating...');
+    const page1 = await axiosInst.get(signinUrl, { headers: { 'User-Agent': UA } });
+    const html1 = page1.data;
 
-    const req2 = { url: exchangeUrl, method: 'POST' };
-    const authData = oauth.authorize(req2, token);
+    const loginBody = new URLSearchParams();
+    loginBody.set('username', user);
+    loginBody.set('password', pass);
+    loginBody.set('embed', 'true');
+    loginBody.set('_eventId', 'submit');
+    
+    const csrf1 = extractInput(html1, '_csrf');
+    const lt = extractInput(html1, 'lt');
+    const execution = extractInput(html1, 'execution');
+    if (csrf1) loginBody.set('_csrf', csrf1);
+    if (lt) loginBody.set('lt', lt);
+    if (execution) loginBody.set('execution', execution);
+
+    const page2 = await axiosInst.post(signinUrl, loginBody.toString(), {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': UA,
+        'Referer': signinUrl,
+      },
+    });
+
+    const html2 = page2.data;
+    let ticket = html2.match(/ticket=([^"&\s]+)/);
+
+    // Handle MFA
+    if (!ticket && (html2.includes('mfa-code') || html2.includes('loginEnterMfaCode'))) {
+      console.log('📧  MFA required. Check your email.');
+      const mfaCode = await prompt('\n🔢  Enter the 6-digit code: ');
+      
+      const mfaBody = new URLSearchParams();
+      mfaBody.set('mfa', mfaCode.trim());
+      mfaBody.set('embed', 'true');
+      mfaBody.set('_eventId', 'submit');
+      const csrf2 = extractInput(html2, '_csrf');
+      if (csrf2) mfaBody.set('_csrf', csrf2);
+
+      const page3 = await axiosInst.post(
+        `${SSO}/verifyMFA/loginEnterMfaCode?${QS}`,
+        mfaBody.toString(),
+        {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'User-Agent': UA,
+            'Referer': signinUrl,
+          },
+        }
+      );
+      ticket = page3.data.match(/ticket=([^"&\s]+)/);
+    }
+
+    if (!ticket) {
+      throw new Error('Login failed. Check credentials or if Garmin is blocking your IP.');
+    }
+
+    const st = ticket[1];
+    console.log('✅  Login successful. Exchanging ticket...');
+
+    // Exchange Phase
+    const preauthUrl = `https://connectapi.garmin.com/oauth-service/oauth/preauthorized?ticket=${st}&login-url=https%3A%2F%2Fsso.garmin.com%2Fsso%2Fembed&accepts-mfa-tokens=true`;
+    const authHeader = oauth.toHeader(oauth.authorize({ url: preauthUrl, method: 'GET' }));
+
+    const res1 = await axios.get(preauthUrl, {
+      headers: { ...authHeader, 'User-Agent': UA }
+    });
+
+    const oauth1 = qs.parse(res1.data);
+    console.log('✅  OAuth1 obtained. Getting OAuth2...');
+
+    const exchangeUrl = 'https://connectapi.garmin.com/oauth-service/oauth/exchange/user/2.0';
+    const token = { key: oauth1.oauth_token, secret: oauth1.oauth_token_secret };
+    const authData = oauth.authorize({ url: exchangeUrl, method: 'POST' }, token);
     const finalUrl = `${exchangeUrl}?${qs.stringify(authData)}`;
 
     const res2 = await axios.post(finalUrl, null, {
-      headers: {
-        'User-Agent': 'com.garmin.android.apps.connectmobile',
-        'Content-Type': 'application/x-www-form-urlencoded',
-      }
+      headers: { 'User-Agent': UA, 'Content-Type': 'application/x-www-form-urlencoded' }
     });
 
-    const oauth2 = res2.data;
-
-    console.log('\n' + '━'.repeat(65));
+    console.log('\n' + '━'.repeat(60));
     console.log('🚀 SUCCESS! PASTE THESE INTO YOUR APP SETTINGS:');
-    console.log('━'.repeat(65));
+    console.log('━'.repeat(60));
     console.log('\nGARMIN_OAUTH1:');
     console.log('\x1b[32m%s\x1b[0m', JSON.stringify(oauth1));
     console.log('\nGARMIN_OAUTH2:');
-    console.log('\x1b[32m%s\x1b[0m', JSON.stringify(oauth2));
-    console.log('\n' + '━'.repeat(65));
+    console.log('\x1b[32m%s\x1b[0m', JSON.stringify(res2.data));
+    console.log('\n' + '━'.repeat(60));
 
   } catch (err) {
-    console.error('\n❌ OAuth2 exchange failed:', err.message);
+    console.error('\n❌ Error:', err.response?.status === 403 ? 'Blocked by Garmin (403). Try phone hotspot.' : err.message);
     process.exit(1);
   }
 }
